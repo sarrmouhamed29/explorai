@@ -3,13 +3,14 @@ import time
 
 import pytest
 
-from explorai_pipelines.extract.models import Unextractable
+from explorai_pipelines.extract.models import ExtractionAborted, Unextractable
 from explorai_pipelines.extract.pdf import (
     PDF_EXTRACTOR_VERSION,
     extract_pdf,
     extract_pdf_isolated,
 )
 from explorai_pipelines.testing import (
+    die_worker,
     image_only_pdf,
     make_pdf,
     one_column_page,
@@ -112,7 +113,13 @@ def test_isolated_extraction_propagates_unextractable() -> None:
 
 def test_isolated_timeout_kills_worker() -> None:
     started = time.monotonic()
-    with pytest.raises(Unextractable, match="timeout"):
+    with pytest.raises(ExtractionAborted, match="timeout"):
         extract_pdf_isolated(b"x", timeout_seconds=1.0, target=sleep_worker)
     assert time.monotonic() - started < 5
+    assert multiprocessing.active_children() == []
+
+
+def test_worker_that_dies_is_an_aborted_extraction_not_a_verdict() -> None:
+    with pytest.raises(ExtractionAborted, match="died"):
+        extract_pdf_isolated(b"x", timeout_seconds=30, target=die_worker)
     assert multiprocessing.active_children() == []

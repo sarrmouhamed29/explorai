@@ -18,6 +18,7 @@ from explorai_pipelines.clean import join_hyphenated, normalize, remove_repeated
 from explorai_pipelines.extract.models import (
     MIN_TEXT_CHARS,
     ExtractedDocument,
+    ExtractionAborted,
     Unextractable,
     split_sections,
 )
@@ -106,7 +107,7 @@ def extract_pdf_isolated(
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise Unextractable("extraction timeout")
+                raise ExtractionAborted("extraction timeout")
             try:
                 kind, payload = queue.get(timeout=min(0.2, remaining))
                 break
@@ -116,7 +117,7 @@ def extract_pdf_isolated(
                         kind, payload = queue.get(timeout=0.5)
                         break
                     except Empty:
-                        raise Unextractable("extraction worker died") from None
+                        raise ExtractionAborted("extraction worker died") from None
     finally:
         if process.is_alive():
             process.kill()

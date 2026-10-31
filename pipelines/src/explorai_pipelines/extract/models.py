@@ -14,7 +14,15 @@ _NAMED_HEADING = re.compile(
 
 
 class Unextractable(Exception):
-    """The artifact has no usable text (scanned, corrupt, empty, timed out)."""
+    """The content has no usable text (scanned, corrupt, empty): a verdict."""
+
+
+class ExtractionAborted(Exception):
+    """Extraction did not finish (timeout, worker killed): says nothing about the file.
+
+    Unlike ``Unextractable`` this is not a verdict on the content, so no version is
+    stored and the artifact is retried on the next run.
+    """
 
 
 @dataclass(frozen=True)

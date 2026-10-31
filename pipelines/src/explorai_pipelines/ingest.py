@@ -105,6 +105,7 @@ def _process(
     external_id: str,
     owner_id: uuid.UUID | None,
     item_title: str | None,
+    item_metadata: dict[str, str] | None,
     artifact_id: uuid.UUID,
     data: bytes,
     url: str | None,
@@ -120,6 +121,8 @@ def _process(
             external_id=external_id,
             owner_id=owner_id,
             title=item_title,
+            extracted_title=None,
+            source_metadata=item_metadata,
             artifact_id=artifact_id,
             extractor_version=extractor.version,
             status="unextractable",
@@ -145,7 +148,9 @@ def _process(
         source_id=source_id,
         external_id=external_id,
         owner_id=owner_id,
-        title=item_title or document.title,
+        title=item_title,
+        extracted_title=document.title,
+        source_metadata=item_metadata,
         artifact_id=artifact_id,
         extractor_version=extractor.version,
         status="ok",
@@ -161,9 +166,12 @@ def _process(
     return (Outcome.NEW_VERSION if existed else Outcome.INGESTED), existed
 
 
-def _index_from_database(repo: Repository) -> NearDuplicateIndex:
+def _index_from_database(
+    repo: Repository, owner_id: uuid.UUID | None
+) -> NearDuplicateIndex:
+    """Near-duplicate index of one owner; never searched across owners."""
     index = NearDuplicateIndex()
-    for key, signature in repo.load_signatures():
+    for key, signature in repo.load_signatures(owner_id):
         index.add(key, signature)
     return index
 
@@ -200,11 +208,12 @@ def ingest_item(
             )
         outcome, _ = _process(
             repo=repo,
-            index=index if index is not None else _index_from_database(repo),
+            index=index if index is not None else _index_from_database(repo, owner_id),
             source_id=source_id,
             external_id=item.external_id,
             owner_id=owner_id,
             item_title=item.title,
+            item_metadata=item.metadata,
             artifact_id=artifact_id,
             data=fetched.content,
             url=fetched.final_url,
@@ -233,20 +242,23 @@ def reextract(
     Reads only stored bytes: no network. Returns counters by outcome.
     """
     counters = {o.value: 0 for o in Outcome}
-    index = _index_from_database(repo)
+    indexes: dict[uuid.UUID | None, NearDuplicateIndex] = {}
     for extractor in extractors.values():
         for ref in repo.artifacts_missing_version(extractor.version):
             try:
                 data = store.get(ref.storage_key)
+                if ref.owner_id not in indexes:
+                    indexes[ref.owner_id] = _index_from_database(repo, ref.owner_id)
                 if sniff_kind(data, None, ref.url) != extractor.kind:
                     continue
                 outcome, _ = _process(
                     repo=repo,
-                    index=index,
+                    index=indexes[ref.owner_id],
                     source_id=ref.source_id,
                     external_id=ref.external_id,
                     owner_id=ref.owner_id,
                     item_title=None,
+                    item_metadata=None,
                     artifact_id=ref.id,
                     data=data,
                     url=ref.url,
@@ -279,11 +291,11 @@ def run_batch(
 ) -> RunReport:
     """Ingest items one by one, recording the run. Each item is isolated."""
     run_id = repo.start_run(source_id)
-    counters = {o.value: 0 for o in Outcome}
+    counters = {o.value: 0 for o in Outcome} | {"recovered": 0}
     errors: list[str] = []
     status = "failed"
     try:
-        index = _index_from_database(repo)
+        index = _index_from_database(repo, owner_id)
         for item, fetch in work:
             try:
                 fetched = fetch()
@@ -307,6 +319,20 @@ def run_batch(
             counters[result.outcome.value] += 1
             if result.detail:
                 errors.append(result.detail)
+        # Finish what earlier runs left half-done (bytes stored, no version yet):
+        # an item that is no longer in the source's latest listing would never be
+        # retried otherwise.
+        caught_up = reextract(
+            repo=repo, store=store, settings=settings, extractors=extractors
+        )
+        counters["recovered"] = caught_up[Outcome.NEW_VERSION.value]
+        counters["unextractable"] += caught_up[Outcome.UNEXTRACTABLE.value]
+        if caught_up[Outcome.FAILED.value]:
+            counters["failed"] += caught_up[Outcome.FAILED.value]
+            errors.append(
+                f"catch-up: {caught_up[Outcome.FAILED.value]} stored artifact(s) "
+                "could not be re-extracted"
+            )
         status = "completed_with_errors" if errors else "completed"
     finally:
         repo.finish_run(run_id, counters, errors, status)

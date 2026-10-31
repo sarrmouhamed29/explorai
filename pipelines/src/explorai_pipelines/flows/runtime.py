@@ -14,6 +14,7 @@ from explorai_db.session import make_engine, make_session_factory
 from explorai_pipelines.config import PipelineSettings, get_settings
 from explorai_pipelines.netsafe import Resolver, default_resolver
 from explorai_pipelines.repository import Repository
+from explorai_pipelines.sources.arxiv import ArxivSource
 from explorai_pipelines.storage import BlobStore, LocalBlobStore
 
 HTTP_TIMEOUT_SECONDS = 30.0
@@ -25,6 +26,8 @@ class Runtime:
     repo: Repository
     store: BlobStore
     client: httpx.Client
+    # One instance per process: its request spacing is shared by every task.
+    arxiv: ArxivSource
     resolve: Resolver = default_resolver
 
 
@@ -32,9 +35,11 @@ class Runtime:
 def build_runtime() -> Runtime:
     settings = get_settings()
     engine = make_engine(str(settings.database_url))
+    client = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
     return Runtime(
         settings=settings,
         repo=Repository(make_session_factory(engine)),
         store=LocalBlobStore(settings.blob_dir),
-        client=httpx.Client(timeout=HTTP_TIMEOUT_SECONDS),
+        client=client,
+        arxiv=ArxivSource(client, settings),
     )

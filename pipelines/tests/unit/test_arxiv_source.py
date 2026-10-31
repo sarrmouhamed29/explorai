@@ -5,7 +5,7 @@ import pytest
 
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.sources.arxiv import ArxivSource
-from explorai_pipelines.sources.base import SourceError
+from explorai_pipelines.sources.base import SourceError, SourceItem
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -102,3 +102,69 @@ def test_arxiv_error_entry_raises_source_error() -> None:
 def test_http_error_raises_source_error() -> None:
     with pytest.raises(SourceError, match="503"):
         source(status=503).list_items("x", 5)
+
+
+def pdf_item() -> SourceItem:
+    return SourceItem(
+        external_id="2401.01234", url="https://arxiv.org/pdf/2401.01234v2"
+    )
+
+
+def pdf_transport(
+    requests: list[httpx.Request],
+    *,
+    status: int = 200,
+    headers: dict[str, str] | None = None,
+) -> httpx.MockTransport:
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status, content=b"%PDF-1.7 body", headers=headers)
+
+    return httpx.MockTransport(respond)
+
+
+def test_pdf_fetch_is_identified_and_spaced() -> None:
+    requests: list[httpx.Request] = []
+    sleeps: list[float] = []
+    arxiv = source(pdf_transport(requests), sleeps=sleeps, clock=[100.0, 101.0, 101.0])
+
+    arxiv.fetch(pdf_item(), 1000)
+    result = arxiv.fetch(pdf_item(), 1000)
+
+    assert result.content.startswith(b"%PDF")
+    assert [r.headers["user-agent"] for r in requests] == [
+        "explorai-ingestion (mailto:me@example.org)"
+    ] * 2
+    assert sleeps == [pytest.approx(2.0)]
+
+
+def test_retry_after_is_honoured_before_the_error_is_raised() -> None:
+    sleeps: list[float] = []
+    transport = pdf_transport([], status=429, headers={"Retry-After": "7"})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        source(transport, sleeps=sleeps).fetch(pdf_item(), 1000)
+
+    assert sleeps == [7.0]
+
+
+def test_retry_after_is_capped() -> None:
+    sleeps: list[float] = []
+    transport = pdf_transport([], status=503, headers={"Retry-After": "99999"})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        source(transport, sleeps=sleeps).fetch(pdf_item(), 1000)
+
+    assert sleeps == [120.0]
+
+
+def test_unparseable_retry_after_is_ignored() -> None:
+    sleeps: list[float] = []
+    transport = pdf_transport(
+        [], status=503, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        source(transport, sleeps=sleeps).fetch(pdf_item(), 1000)
+
+    assert sleeps == []

@@ -11,6 +11,7 @@ import httpx
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.netsafe import (
     DownloadTooLargeError,
+    FetchResult,
     Resolver,
     UnsafeUrlError,
     UrlPolicy,
@@ -23,6 +24,7 @@ SOURCE_KIND = "arxiv"
 API_URL = "https://export.arxiv.org/api/query"
 ARXIV_POLICY = UrlPolicy(frozenset({"arxiv.org", "export.arxiv.org"}))
 MAX_FEED_BYTES = 5_000_000
+MAX_RETRY_AFTER_SECONDS = 120.0
 
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _ABS_ID = re.compile(r"/abs/(?P<id>.+?)(?:v\d+)?$")
@@ -61,6 +63,36 @@ class ArxivSource:
         if wait > 0:
             self._sleep(wait)
 
+    def _get(self, url: str, max_bytes: int) -> FetchResult:
+        """The single gateway to arxiv.org: spacing, User-Agent, Retry-After."""
+        self._wait_turn()
+        try:
+            return fetch_bytes(
+                self._client,
+                url,
+                ARXIV_POLICY,
+                max_bytes,
+                resolve=self._resolve,
+                headers={"User-Agent": self._user_agent},
+            )
+        except httpx.HTTPStatusError as error:
+            self._honour_retry_after(error.response)
+            raise
+        finally:
+            self._last_request_end = self._clock()
+
+    def _honour_retry_after(self, response: httpx.Response) -> None:
+        """Wait as long as arXiv asked (seconds form, capped) before a retry."""
+        if response.status_code not in (429, 503):
+            return
+        value = response.headers.get("retry-after", "")
+        if value.isdigit():
+            self._sleep(min(float(value), MAX_RETRY_AFTER_SECONDS))
+
+    def fetch(self, item: SourceItem, max_bytes: int) -> FetchResult:
+        """Download an item's PDF through the same politeness rules as the feed."""
+        return self._get(item.url, max_bytes)
+
     def _download_feed(self, query: str, max_results: int) -> bytes:
         params = urlencode(
             {
@@ -70,20 +102,10 @@ class ArxivSource:
                 "sortOrder": "descending",
             }
         )
-        self._wait_turn()
         try:
-            result = fetch_bytes(
-                self._client,
-                f"{API_URL}?{params}",
-                ARXIV_POLICY,
-                MAX_FEED_BYTES,
-                resolve=self._resolve,
-                headers={"User-Agent": self._user_agent},
-            )
+            result = self._get(f"{API_URL}?{params}", MAX_FEED_BYTES)
         except (httpx.HTTPError, UnsafeUrlError, DownloadTooLargeError) as error:
             raise SourceError(f"arXiv request failed: {error}") from error
-        finally:
-            self._last_request_end = self._clock()
         return result.content
 
     def list_items(self, query: str, max_results: int) -> list[SourceItem]:

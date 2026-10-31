@@ -44,13 +44,13 @@ Concept notes for sub-project 1. Each concept is explained plainly, then tied to
 
 **Idea.** Two documents are near-duplicates if their sets of word 5-grams ("shingles") overlap a lot. The Jaccard index is `|A ∩ B| / |A ∪ B|`. MinHash compresses a set into a short signature so that the fraction of equal slots estimates the Jaccard index.
 
-**In this repo.** `dedup.py`: `minhash_signature` (128 slots), `NearDuplicateIndex` (threshold 0.9, a linear scan of stored signatures). Changing one word in 200 changes about 5 shingles of 196, a Jaccard of about 0.95. Duplicates are **marked, not deleted** (`duplicate_of` points at a canonical version), because a deletion cannot be undone and a threshold can be wrong. Only canonical versions are indexed, so duplicates never form chains. The scalable alternative is locality-sensitive hashing (LSH); it was tried and rejected here because it is probabilistic around its threshold and missed a 0.945 pair at threshold 0.9.
+**In this repo.** `dedup.py`: `minhash_signature` (128 slots), `NearDuplicateIndex` (threshold 0.9, a linear scan of stored signatures). Changing one word in 200 changes about 5 shingles of 196, a Jaccard of about 0.95. Duplicates are looked for **within one owner** only, so a private document can never become the canonical version of a public one. They are **marked, not deleted** (`duplicate_of` points at a canonical version), because a deletion cannot be undone and a threshold can be wrong. Only canonical versions are indexed, so duplicates never form chains. The scalable alternative is locality-sensitive hashing (LSH); it was tried and rejected here because it is probabilistic around its threshold and missed a 0.945 pair at threshold 0.9.
 
 ## 8. Idempotency and transactions
 
 **Idempotent** means running an operation twice has the same effect as running it once. Pipelines fail and get retried, so every step must be idempotent.
 
-**In this repo.** An artifact is identified by `(source, external_id, owner, sha256)` and a version by `(artifact, extractor_version)`. `ingest_item` returns `unchanged` only when the artifact already has a version for the current extractor. One transaction saves a document, its version and its sections, so a failure leaves nothing partial; an unexpected error stores no version, so the next run retries it, while an `unextractable` verdict is stored because it will not change until the extractor does. `test_replaying_same_batch_changes_nothing` is the success criterion of the sub-project.
+**In this repo.** An artifact is identified by `(source, external_id, owner, sha256)` and a version by `(artifact, extractor_version)`. `ingest_item` returns `unchanged` only when the artifact already has a version for the current extractor. One transaction saves a document, its version and its sections, so a failure leaves nothing partial. An unexpected error, an extraction timeout or a killed worker stores no version (`ExtractionAborted` is not a verdict on the file), while an `unextractable` verdict is stored because it will not change until the extractor does. Because a failed item may no longer be in tomorrow's listing, each batch ends by extracting every stored artifact that still lacks a version (`recovered` counter). `test_replaying_same_batch_changes_nothing` is the success criterion of the sub-project.
 
 ## 9. Replaying from the raw layer
 
@@ -68,7 +68,7 @@ Concept notes for sub-project 1. Each concept is explained plainly, then tied to
 
 **Idea.** Sources publish usage rules. arXiv asks for sequential requests, a pause of about three seconds, and an identifiable `User-Agent`.
 
-**In this repo.** `ArxivSource` spaces requests with an injectable clock (so tests are instant), sends `explorai-ingestion (mailto:<CONTACT_EMAIL>)`, and uses the official Atom API, not scraping.
+**In this repo.** `ArxivSource` is the one gateway for every arxiv.org request, feed and PDFs alike: it spaces requests with an injectable clock (so tests are instant), sends `explorai-ingestion (mailto:<CONTACT_EMAIL>)`, waits out a `Retry-After` on 429/503 before the task retries, and uses the official Atom API, not scraping.
 
 ## 12. Measure before you improve
 
@@ -122,7 +122,7 @@ The pipelines and the backend need the same tables; putting the schema in the ba
 I measure it on a hand-annotated sample: column order (12 of 12 pairs) and header removal (2 of 4). The weak spot is documented with its causes, and the number becomes the baseline for improvement.
 
 **14. What happens when one document in a batch fails?**
-The item is recorded as failed in `ingestion_runs` and the batch continues. A transaction per document means nothing partial is written, and an unexpected failure stores no version, so the next run retries it.
+The item is recorded as failed in `ingestion_runs` and the batch continues. A transaction per document means nothing partial is written, and an unexpected failure stores no version. Because tomorrow's listing may not contain the item again, every batch ends by extracting the stored artifacts that still lack a version.
 
 **15. Why does CI not download from arXiv?**
 It would couple the build to a third-party service and hit it on every pull request. Tests use mocked transports; a real batch is an opt-in smoke check.

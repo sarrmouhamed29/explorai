@@ -11,8 +11,8 @@ from explorai_pipelines.flows.common import (
     is_transient,
 )
 from explorai_pipelines.ingest import RunReport, run_batch
-from explorai_pipelines.netsafe import FetchResult, fetch_bytes
-from explorai_pipelines.sources.arxiv import ARXIV_POLICY, SOURCE_KIND, ArxivSource
+from explorai_pipelines.netsafe import FetchResult
+from explorai_pipelines.sources.arxiv import SOURCE_KIND
 from explorai_pipelines.sources.base import SourceItem
 
 
@@ -22,9 +22,7 @@ from explorai_pipelines.sources.base import SourceItem
     retry_condition_fn=is_transient,
 )
 def list_arxiv_items(query: str, max_results: int) -> list[SourceItem]:
-    rt = runtime.build_runtime()
-    source = ArxivSource(rt.client, rt.settings, resolve=rt.resolve)
-    return source.list_items(query, max_results)
+    return runtime.build_runtime().arxiv.list_items(query, max_results)
 
 
 @task(
@@ -34,13 +32,7 @@ def list_arxiv_items(query: str, max_results: int) -> list[SourceItem]:
 )
 def fetch_item(item: SourceItem) -> FetchResult:
     rt = runtime.build_runtime()
-    return fetch_bytes(
-        rt.client,
-        item.url,
-        ARXIV_POLICY,
-        rt.settings.max_download_bytes,
-        resolve=rt.resolve,
-    )
+    return rt.arxiv.fetch(item, rt.settings.max_download_bytes)
 
 
 @flow(name="ingest-arxiv")

@@ -4,6 +4,7 @@ Fixtures are generated instead of committed so that each test shows exactly the
 layout it relies on (columns, running headers, a missing text layer).
 """
 
+import os
 import time
 from collections.abc import Sequence
 from multiprocessing.queues import Queue
@@ -74,3 +75,8 @@ def image_only_pdf() -> bytes:
 def sleep_worker(data: bytes, queue: "Queue[Any]") -> None:
     """Stand-in extraction worker that never answers (timeout tests)."""
     time.sleep(60)
+
+
+def die_worker(data: bytes, queue: "Queue[Any]") -> None:
+    """Stand-in extraction worker that exits without answering (crash tests)."""
+    os._exit(1)

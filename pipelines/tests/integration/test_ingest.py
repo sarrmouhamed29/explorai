@@ -15,7 +15,11 @@ from explorai_db.models import (
     Section,
 )
 from explorai_pipelines.config import PipelineSettings
-from explorai_pipelines.extract.models import ExtractedDocument, ExtractedSection
+from explorai_pipelines.extract.models import (
+    ExtractedDocument,
+    ExtractedSection,
+    ExtractionAborted,
+)
 from explorai_pipelines.extract.pdf import PDF_EXTRACTOR_VERSION, extract_pdf
 from explorai_pipelines.ingest import (
     DEFAULT_EXTRACTORS,
@@ -298,6 +302,8 @@ def test_failure_in_one_transaction_leaves_no_partial_rows(
             external_id="2401.00030",
             owner_id=None,
             title="t",
+            extracted_title=None,
+            source_metadata=None,
             artifact_id=artifact_id,
             extractor_version="pdf-1",
             status="ok",
@@ -455,3 +461,154 @@ def test_default_isolated_extractor_ingests_a_real_pdf(
         extractors=DEFAULT_EXTRACTORS,
     )
     assert result.outcome is Outcome.INGESTED
+
+
+def version_of(
+    factory: sessionmaker[Session], external_id: str, owner_id: Any = None
+) -> DocumentVersion:
+    with factory() as session:
+        return session.scalars(
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                Document.external_id == external_id,
+                Document.owner_id.is_(None)
+                if owner_id is None
+                else Document.owner_id == owner_id,
+            )
+        ).one()
+
+
+def test_duplicates_are_only_looked_for_within_the_same_owner(
+    repo: Repository,
+    store: LocalBlobStore,
+    settings: PipelineSettings,
+    source_id: Any,
+    session_factory: sessionmaker[Session],
+) -> None:
+    import uuid
+
+    owner = uuid.uuid4()
+    content = pdf_bytes(LOREM * 3)
+    ingest(repo, store, settings, source_id, item("pub-1"), content)
+    ingest(repo, store, settings, source_id, item("priv-1"), content, owner_id=owner)
+    ingest(repo, store, settings, source_id, item("pub-2"), content)
+    ingest(repo, store, settings, source_id, item("priv-2"), content, owner_id=owner)
+
+    pub1 = version_of(session_factory, "pub-1")
+    priv1 = version_of(session_factory, "priv-1", owner)
+    assert priv1.duplicate_of is None  # never points at the public corpus
+    assert version_of(session_factory, "pub-2").duplicate_of == pub1.id
+    assert version_of(session_factory, "priv-2", owner).duplicate_of == priv1.id
+
+
+def test_reextract_keeps_the_source_title_and_metadata_survives(
+    repo: Repository,
+    store: LocalBlobStore,
+    settings: PipelineSettings,
+    source_id: Any,
+    session_factory: sessionmaker[Session],
+) -> None:
+    api_item = SourceItem(
+        external_id="2401.00060",
+        url="https://arxiv.org/pdf/2401.00060",
+        title="Clean API Title",
+        metadata={"authors": "Ada Lovelace", "published": "2024-01-02"},
+    )
+    ingest(repo, store, settings, source_id, api_item, pdf_bytes(LOREM))
+    newer = {
+        "pdf": Extractor(
+            version="pdf-2",
+            kind="pdf",
+            run=lambda data, url, timeout: ExtractedDocument(
+                title="Banner Line From The PDF",
+                sections=[ExtractedSection(heading=None, text=LOREM)],
+            ),
+        ),
+        "html": DEFAULT_EXTRACTORS["html"],
+    }
+
+    reextract(repo=repo, store=store, extractors=newer, settings=settings)
+
+    with session_factory() as session:
+        document = session.scalars(select(Document)).one()
+    assert document.title == "Clean API Title"
+    assert document.source_metadata == {
+        "authors": "Ada Lovelace",
+        "published": "2024-01-02",
+    }
+
+
+def test_title_falls_back_to_the_extracted_title(
+    repo: Repository,
+    store: LocalBlobStore,
+    settings: PipelineSettings,
+    source_id: Any,
+    session_factory: sessionmaker[Session],
+) -> None:
+    ingest(repo, store, settings, source_id, item("2401.00061"), pdf_bytes(LOREM))
+    with session_factory() as session:
+        assert session.scalars(select(Document.title)).one()
+
+
+def test_run_batch_completes_artifacts_left_without_a_version(
+    repo: Repository,
+    store: LocalBlobStore,
+    settings: PipelineSettings,
+    source_id: Any,
+    session_factory: sessionmaker[Session],
+) -> None:
+    import hashlib
+
+    content = pdf_bytes(LOREM + "orphan")
+    repo.store_artifact(
+        source_id=source_id,
+        external_id="2401.00070",
+        url="https://arxiv.org/pdf/2401.00070",
+        sha256=hashlib.sha256(content).hexdigest(),
+        storage_key=store.put(content),
+        owner_id=None,
+    )  # a previous run stored the bytes, then died before saving a version
+
+    report = run_batch(
+        [],
+        repo=repo,
+        store=store,
+        source_id=source_id,
+        settings=settings,
+        extractors=IN_PROCESS,
+    )
+
+    assert report.counters["recovered"] == 1
+    assert count(session_factory, DocumentVersion) == 1
+    assert report.status == "completed"
+
+
+def test_extraction_abort_is_a_failure_that_stores_no_version(
+    repo: Repository,
+    store: LocalBlobStore,
+    settings: PipelineSettings,
+    source_id: Any,
+    session_factory: sessionmaker[Session],
+) -> None:
+    def abort(data: bytes, url: str | None, timeout: float) -> ExtractedDocument:
+        raise ExtractionAborted("extraction timeout")
+
+    flaky = {
+        "pdf": Extractor(version=PDF_EXTRACTOR_VERSION, kind="pdf", run=abort),
+        "html": DEFAULT_EXTRACTORS["html"],
+    }
+
+    result = ingest(
+        repo,
+        store,
+        settings,
+        source_id,
+        item("2401.00080"),
+        pdf_bytes(LOREM),
+        extractors=flaky,
+    )
+
+    assert result.outcome is Outcome.FAILED
+    assert result.detail and "extraction timeout" in result.detail
+    assert count(session_factory, DocumentVersion) == 0

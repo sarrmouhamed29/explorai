@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, exists, select, update
+from sqlalchemy import ColumnElement, and_, exists, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import InstrumentedAttribute, Session, sessionmaker
 
@@ -190,6 +190,8 @@ class Repository:
         external_id: str,
         owner_id: uuid.UUID | None,
         title: str | None,
+        extracted_title: str | None,
+        source_metadata: dict[str, str] | None,
         artifact_id: uuid.UUID,
         extractor_version: str,
         status: str,
@@ -198,7 +200,11 @@ class Repository:
         duplicate_of: uuid.UUID | None,
         sections: list[ExtractedSection],
     ) -> SavedVersion:
-        """Upsert the document, add the version and its sections, all or nothing."""
+        """Upsert the document, add the version and its sections, all or nothing.
+
+        ``title`` and ``source_metadata`` come from the source and win; the title
+        extracted from the file only fills a document that has none.
+        """
         with self._factory.begin() as session:
             document = session.scalars(
                 select(Document).where(_same_document(source_id, external_id, owner_id))
@@ -209,12 +215,18 @@ class Repository:
                     source_id=source_id,
                     external_id=external_id,
                     owner_id=owner_id,
-                    title=title,
+                    title=title or extracted_title,
+                    source_metadata=source_metadata or None,
                 )
                 session.add(document)
                 session.flush()
-            elif title:
-                document.title = title
+            else:
+                if title:
+                    document.title = title
+                elif document.title is None and extracted_title:
+                    document.title = extracted_title
+                if source_metadata:
+                    document.source_metadata = source_metadata
             version = DocumentVersion(
                 document_id=document.id,
                 artifact_id=artifact_id,
@@ -247,7 +259,11 @@ class Repository:
         external_id: str,
         owner_id: uuid.UUID | None,
     ) -> uuid.UUID | None:
-        """Oldest canonical ok version with this text hash in a *different* document."""
+        """Oldest canonical ok version with this hash, same owner, other document.
+
+        Scoped by owner so that a private document never becomes the canonical
+        version of a public one (or of another user's).
+        """
         with self._factory() as session:
             return session.scalars(
                 select(DocumentVersion.id)
@@ -256,16 +272,24 @@ class Repository:
                     DocumentVersion.text_hash == text_hash,
                     DocumentVersion.status == "ok",
                     DocumentVersion.duplicate_of.is_(None),
-                    ~_same_document(source_id, external_id, owner_id),
+                    _owner_is(Document.owner_id, owner_id),
+                    or_(
+                        Document.source_id != source_id,
+                        Document.external_id != external_id,
+                    ),
                 )
                 .order_by(DocumentVersion.created_at)
                 .limit(1)
             ).one_or_none()
 
-    def load_signatures(self) -> list[tuple[str, bytes]]:
+    def load_signatures(self, owner_id: uuid.UUID | None) -> list[tuple[str, bytes]]:
+        """Signatures of the canonical versions visible to one owner's dedup."""
         with self._factory() as session:
             rows = session.execute(
-                select(DocumentVersion.id, DocumentVersion.minhash_signature).where(
+                select(DocumentVersion.id, DocumentVersion.minhash_signature)
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(
+                    _owner_is(Document.owner_id, owner_id),
                     DocumentVersion.status == "ok",
                     DocumentVersion.duplicate_of.is_(None),
                     DocumentVersion.minhash_signature.is_not(None),

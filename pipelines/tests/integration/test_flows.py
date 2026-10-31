@@ -13,6 +13,7 @@ from explorai_db.models import DocumentVersion, IngestionRun
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.flows import ingest_arxiv, ingest_web, reextract, runtime
 from explorai_pipelines.repository import Repository
+from explorai_pipelines.sources.arxiv import ArxivSource
 from explorai_pipelines.storage import LocalBlobStore
 from explorai_pipelines.testing import make_pdf, one_column_page
 
@@ -53,12 +54,15 @@ def install(
     fast = settings.model_copy(update={"arxiv_min_interval_seconds": 0.001})
 
     def _install(handler: Handler) -> None:
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        resolve = lambda _host: ["151.101.1.1"]  # noqa: E731
         built = runtime.Runtime(
             settings=fast,
             repo=repo,
             store=store,
-            client=httpx.Client(transport=httpx.MockTransport(handler)),
-            resolve=lambda _host: ["151.101.1.1"],
+            client=client,
+            arxiv=ArxivSource(client, fast, sleep=lambda _s: None, resolve=resolve),
+            resolve=resolve,
         )
         monkeypatch.setattr(runtime, "build_runtime", lambda: built)
         # No waiting between retries in tests.

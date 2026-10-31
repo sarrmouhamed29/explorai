@@ -8,7 +8,7 @@ The database schema of Explorai: SQLAlchemy 2 models, engine and session helpers
 |---|---|
 | `sources` | A declared source (`kind`, `name`, `config`) |
 | `raw_artifacts` | Downloaded bytes, immutable (`sha256`, `storage_key`, `owner_id`) |
-| `documents` | A logical document (`source_id`, `external_id`, `owner_id`) |
+| `documents` | A logical document (`source_id`, `external_id`, `owner_id`), its `title` and the `source_metadata` the source gave (authors, publication date, abstract for arXiv) |
 | `document_versions` | Text extracted from one artifact by one `extractor_version`; `status` is `ok`, `failed` or `unextractable`; `duplicate_of` points at a canonical version |
 | `sections` | Cleaned text split by heading, in `ordinal` order |
 | `ingestion_runs` | One row per execution, with counters and errors |

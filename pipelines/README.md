@@ -10,7 +10,7 @@ arXiv / web        allowlist,      blob store +     PDF/HTML     text        exa
                    size cap        artifacts row                              near
 ```
 
-- `sources/`: list items and never write to the database (`arxiv.py`, `web.py`).
+- `sources/`: list items and never write to the database (`arxiv.py`, `web.py`). `ArxivSource` is the single gateway to arxiv.org, for the feed and for the PDFs: requests are spaced, carry the identifying `User-Agent`, and a `Retry-After` of 429/503 answers is waited out (capped at 120 s) before the task retries.
 - `netsafe.py`: HTTPS-only, domain allowlist, private addresses refused, redirects re-validated, size cap enforced while streaming.
 - `storage.py`: `BlobStore` and `LocalBlobStore`, keys are SHA-256 digests.
 - `extract/`: `pdf.py` (PyMuPDF, run in a separate process with a timeout) and `html.py` (trafilatura). Each is versioned (`pdf-1`, `html-1`).
@@ -20,7 +20,7 @@ arXiv / web        allowlist,      blob store +     PDF/HTML     text        exa
 - `flows/`: thin Prefect flows around `ingest.py`; `__main__.py` is the command line.
 - `measure.py`: extraction quality on the annotated sample.
 
-Replaying a batch changes nothing. A changed source file creates a new version of the same document. A new extractor version creates new versions from the stored bytes, with no network.
+Replaying a batch changes nothing. A changed source file creates a new version of the same document. A new extractor version creates new versions from the stored bytes, with no network. Every batch also finishes what earlier runs left half-done: stored artifacts without a version for the current extractor are extracted at the end of the run (`recovered` in the run counters), so an item that dropped out of the latest listing is not lost. The title and metadata given by the source (arXiv API) win over the title found in the file.
 
 ## Configuration
 
@@ -84,4 +84,6 @@ Results and the failure analysis are in `docs/evaluation/extraction-baseline.md`
 - Tables and formulas come out as plain text lines.
 - The download check resolves a name and the HTTP client resolves it again, so a DNS-rebinding attacker is not fully excluded.
 - The near-duplicate scan is linear in the number of stored signatures.
-- The `failed` version status exists in the schema but is not written: an unexpected error stores no version so the next run retries it.
+- The `failed` version status exists in the schema but is not written: an unexpected error, a timeout or a killed extraction worker stores no version, so the next run retries it. Only a content verdict (`unextractable`) is stored.
+- Duplicates are searched within one owner only: a private document is never the canonical version of a public one.
+- Two runs at the same time are not coordinated (no lock): data stays consistent, but one run can report a collision as a failed item and the two in-memory duplicate indexes do not see each other.

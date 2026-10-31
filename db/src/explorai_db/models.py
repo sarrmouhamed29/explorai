@@ -79,6 +79,8 @@ class Document(Base):
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"))
     external_id: Mapped[str] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the source says about the document (authors, publication date, abstract).
+    source_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
 
