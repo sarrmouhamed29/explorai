@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     redis_url: RedisDsn
     check_timeout_seconds: float = 2.0
 
+    # Callers use from_env() instead of Settings(): the pydantic mypy plugin
+    # types required fields as required constructor args.
     @classmethod
     def from_env(cls) -> "Settings":
         """Build settings purely from the environment.

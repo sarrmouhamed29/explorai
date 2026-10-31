@@ -9,7 +9,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    // Override with `vite --host 0.0.0.0` (e.g. in Docker).
+    // Local dev binds loopback only; the Docker image overrides it with `--host 0.0.0.0`.
+    host: "127.0.0.1",
     proxy: {
       "/health": backendUrl,
     },

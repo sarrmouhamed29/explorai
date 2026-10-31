@@ -1,5 +1,6 @@
 # Hooks are a local convenience (fast feedback); CI is the actual gate.
 # mypy is intentionally not a hook (too slow); CI runs it.
+default_install_hook_types: [pre-commit, commit-msg]
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.3

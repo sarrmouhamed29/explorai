@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # DEV image (Vite dev server). The production image belongs to a later sub-project.
 # Build context is frontend/: docker build frontend
-FROM node:22-slim
+FROM node:22.23.4-slim
 RUN npm install -g pnpm@12.16.1
 WORKDIR /app
 RUN chown node:node /app

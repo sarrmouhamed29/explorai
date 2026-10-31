@@ -5,14 +5,26 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-compose() { docker compose --env-file infra/.env -f infra/docker-compose.yml "$@"; }
+# Dedicated project name: `down -v` below can never touch a developer's own stack.
+compose() { docker compose -p explorai-smoke --env-file infra/.env -f infra/docker-compose.yml "$@"; }
 
 if [ ! -f infra/.env ]; then
   echo "infra/.env missing: copying from .env.example"
   cp .env.example infra/.env
 fi
 
-trap 'echo "Tearing down..."; compose down -v' EXIT
+# Capture the exit status first so the diagnostics and teardown cannot mask it.
+cleanup() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "Smoke test failed (exit $status); container logs follow." >&2
+    compose logs --no-color --tail=100 >&2 || true
+  fi
+  echo "Tearing down..."
+  compose down -v || true
+  exit "$status"
+}
+trap cleanup EXIT
 
 compose up -d --build --wait
 
