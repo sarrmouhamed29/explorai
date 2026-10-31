@@ -1,0 +1,39 @@
+# Hooks are a local convenience (fast feedback); CI is the actual gate.
+# mypy is intentionally not a hook (too slow); CI runs it.
+default_install_hook_types: [pre-commit, commit-msg]
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.5.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      # Equivalent of the official gitleaks/gitleaks hook (`gitleaks git --pre-commit
+      # --staged`), run from the official release binary (v8.30.1, must be on PATH).
+      # The upstream hook builds from source with Go, which hung on this machine.
+      - id: gitleaks
+        name: gitleaks (staged changes)
+        entry: gitleaks git --pre-commit --staged --redact --verbose
+        language: system
+        pass_filenames: false
+      - id: prettier
+        name: prettier (frontend)
+        entry: bash -c 'cd frontend && pnpm exec prettier --write --ignore-unknown "${@#frontend/}"' --
+        language: system
+        files: ^frontend/
+        exclude: ^frontend/(src/api/schema\.d\.ts|pnpm-lock\.yaml)$
+      - id: eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && pnpm exec eslint --fix "${@#frontend/}"' --
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx)$
+        exclude: ^frontend/src/api/schema\.d\.ts$
