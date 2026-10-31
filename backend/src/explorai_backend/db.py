@@ -19,7 +19,9 @@ async def check_postgres(database_url: str) -> bool:
 
 async def check_redis(redis_url: str) -> bool:
     try:
-        client = from_url(redis_url)
+        # Socket timeouts are defence in depth: the caller bounds the probe, but a
+        # stuck socket must not outlive it (same 5 s bound as connect_timeout above).
+        client = from_url(redis_url, socket_connect_timeout=5, socket_timeout=5)
         try:
             return bool(await client.ping())
         finally:

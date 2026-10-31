@@ -70,7 +70,7 @@ async def ready(
     statuses: dict[str, Literal["ok", "down"]] = {
         n: "ok" if r else "down" for n, r in zip(names, results, strict=True)
     }
-    healthy = all(r for r in results)
+    healthy = all(results)
     if not healthy:
         response.status_code = 503
     return ReadyResponse(status="ok" if healthy else "unavailable", checks=statuses)

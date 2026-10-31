@@ -54,3 +54,30 @@ def test_invalid_app_env_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValidationError):
         Settings.from_env()
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "31"])
+def test_check_timeout_out_of_bounds_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", PG_URL)
+    monkeypatch.setenv("REDIS_URL", REDIS_URL)
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CHECK_TIMEOUT_SECONDS", value)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.from_env()
+
+    assert "check_timeout_seconds" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("value", [0.5, 30])
+def test_check_timeout_within_bounds_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, value: float
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", PG_URL)
+    monkeypatch.setenv("REDIS_URL", REDIS_URL)
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CHECK_TIMEOUT_SECONDS", str(value))
+
+    assert Settings.from_env().check_timeout_seconds == value

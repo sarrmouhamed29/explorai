@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import PostgresDsn, RedisDsn
+from pydantic import Field, PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"]
     database_url: PostgresDsn
     redis_url: RedisDsn
-    check_timeout_seconds: float = 2.0
+    # Bounded: 0 would make /health/ready always 503, inf/nan would let it hang.
+    check_timeout_seconds: float = Field(default=2.0, gt=0, le=30, allow_inf_nan=False)
 
     # Callers use from_env() instead of Settings(): the pydantic mypy plugin
     # types required fields as required constructor args.
