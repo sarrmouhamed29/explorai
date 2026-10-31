@@ -6,7 +6,7 @@ the resolved addresses (a name that resolves to a private address is refused).
 
 import ipaddress
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
@@ -78,11 +78,14 @@ def fetch_bytes(
     max_bytes: int,
     *,
     resolve: Resolver = default_resolver,
+    headers: Mapping[str, str] | None = None,
 ) -> FetchResult:
     current = url
     for _ in range(MAX_REDIRECTS + 1):
         check_url(current, policy, resolve)
-        with client.stream("GET", current, follow_redirects=False) as response:
+        with client.stream(
+            "GET", current, headers=headers, follow_redirects=False
+        ) as response:
             if response.status_code in _REDIRECT_STATUSES:
                 location = response.headers.get("location")
                 if not location:
