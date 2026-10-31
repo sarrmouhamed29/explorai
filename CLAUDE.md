@@ -29,7 +29,7 @@ uv run --package explorai-backend pytest backend/tests -m integration
 # Backend lint, format, types (same as CI)
 uv run ruff check backend
 uv run ruff format backend                  # CI runs `ruff format --check backend`
-uv run mypy backend/src backend/tests backend/scripts
+uv run mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
 
 # Frontend
 pnpm --dir frontend test                    # Vitest
