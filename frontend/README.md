@@ -14,7 +14,7 @@ pnpm --dir frontend install
 pnpm --dir frontend dev
 ```
 
-Locally, `pnpm dev` binds to Vite's default host and serves port 5173; pass `--host 127.0.0.1` for the explicit form. Use `127.0.0.1`, not `localhost` (on Windows `localhost` resolves to `::1` first and stalls). In development, Vite proxies `/health` to `BACKEND_URL` (default `http://127.0.0.1:8000`), which avoids CORS.
+Locally, `server.host` in `vite.config.ts` defaults to `127.0.0.1` (loopback only) and the server listens on port 5173; the Docker image overrides the host with `--host 0.0.0.0`. Use `127.0.0.1`, not `localhost` (on Windows `localhost` resolves to `::1` first and stalls). In development, Vite proxies `/health` to `BACKEND_URL` (default `http://127.0.0.1:8000`), which avoids CORS.
 
 ## Run the full stack (Docker Compose)
 
@@ -40,6 +40,11 @@ pnpm --dir frontend typecheck
 pnpm --dir frontend lint
 pnpm --dir frontend build
 ```
+
+## Design notes
+
+- **TypeScript is pinned to `^5`** in `package.json`: TypeScript 7 breaks `openapi-typescript`, which generates the API types. Do not widen the range without checking that `pnpm gen:api` still works.
+- **`baseUrl: window.location.origin`** in `src/api/client.ts` assumes the frontend and the API are served from the same origin: the Vite dev proxy now, a reverse proxy later. Serving them from different origins would need an explicit API URL and CORS on the backend.
 
 ## Regenerate the API client
 

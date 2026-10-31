@@ -9,11 +9,16 @@ FastAPI service for Explorai. Currently exposes health endpoints:
 
 ## Run
 
-From the repository root, with the environment variables below set:
+The app reads only the process environment (it does not load `.env` files). From the repository root, start the databases, export the variables from `infra/.env`, then run uvicorn:
 
 ```
+cp .env.example infra/.env                                                          # once; git-ignored
+docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait postgres redis
+set -a; . infra/.env; set +a                                                        # export DATABASE_URL, REDIS_URL, ...
 uv run --package explorai-backend uvicorn explorai_backend.main:app --reload
 ```
+
+(`set -a; . infra/.env; set +a` is POSIX shell syntax, e.g. Git Bash. On Windows, running uvicorn natively also needs the selector event loop, see Test below.)
 
 ## Run the stack
 
@@ -79,4 +84,6 @@ Read from the process environment only (no `.env` loading); the app fails fast i
 | `REDIS_URL` | yes | Redis DSN, e.g. `redis://127.0.0.1:6379/0` |
 | `CHECK_TIMEOUT_SECONDS` | no | Per-dependency readiness timeout, default `2.0` |
 
-Use `127.0.0.1` rather than `localhost`: on Windows `localhost` tries `::1` first and stalls each probe by about 2 s.
+If the PostgreSQL password contains `@`, `/` or `:`, URL-encode it inside `DATABASE_URL` (for example `@` becomes `%40`). `POSTGRES_PASSWORD` keeps the raw value.
+
+Use `127.0.0.1` rather than `localhost`: on Windows `localhost` tries `::1` first and stalls each probe (about 5 s for PostgreSQL through libpq, about 2 s for Redis).

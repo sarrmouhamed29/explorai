@@ -136,3 +136,5 @@ Each entry is one spec → plan → implementation → demo cycle.
 ## Next step
 
 Write the detailed spec of sub-project 0 (Foundations), then its implementation plan. No code and no dependencies before both documents are approved.
+
+Update: sub-project 0 (Foundations) is implemented; sub-project 1 (Ingestion) comes next, starting with its own spec.
