@@ -1,0 +1,49 @@
+# git-cliff configuration: changelog generated from Conventional Commits.
+# Usage: uvx git-cliff -o CHANGELOG.md            (unreleased section from the full history)
+#        uvx git-cliff --tag vX.Y.Z -o CHANGELOG.md   (when cutting a release)
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here. The file is generated from Conventional Commits with git-cliff (see CONTRIBUTING.md).
+
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+{% if commit.breaking %} (**breaking**){% endif %} ({{ commit.id | truncate(length=7, end="") }})\
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = false
+filter_commits = false
+topo_order = false
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
+  { message = "^test", group = "<!-- 5 -->Tests" },
+  { message = "^build", group = "<!-- 6 -->Build" },
+  { message = "^ci", group = "<!-- 7 -->CI" },
+  { message = "^style", group = "<!-- 8 -->Style" },
+  { message = "^chore", group = "<!-- 9 -->Chores" },
+]
