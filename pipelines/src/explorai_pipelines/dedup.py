@@ -56,11 +56,15 @@ class NearDuplicateIndex:
     def add(self, key: str, signature: bytes) -> None:
         self._signatures.setdefault(key, _values(signature))
 
-    def find(self, signature: bytes) -> str | None:
+    def find(
+        self, signature: bytes, ignore: frozenset[str] = frozenset()
+    ) -> str | None:
         probe = _values(signature)
         best_key: str | None = None
         best_score = self._threshold
         for key, stored in sorted(self._signatures.items()):
+            if key in ignore:
+                continue
             score = float(np.mean(stored == probe))
             if score >= best_score:
                 best_key, best_score = key, score

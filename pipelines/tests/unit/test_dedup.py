@@ -38,3 +38,19 @@ def test_empty_index_finds_nothing() -> None:
 
 def test_short_text_has_a_signature() -> None:
     assert minhash_signature("two words") != minhash_signature("")
+
+
+def test_ignored_keys_are_skipped() -> None:
+    index = NearDuplicateIndex(threshold=0.9)
+    index.add("same-document", minhash_signature(BASE))
+    index.add("other", minhash_signature(BASE))
+    assert (
+        index.find(minhash_signature(BASE), ignore=frozenset({"same-document"}))
+        == "other"
+    )
+    assert (
+        index.find(
+            minhash_signature(BASE), ignore=frozenset({"same-document", "other"})
+        )
+        is None
+    )
