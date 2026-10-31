@@ -17,10 +17,29 @@ uv run --package explorai-backend uvicorn explorai_backend.main:app --reload
 
 ## Test
 
+Unit tests need no services:
+
 ```
-uv run --package explorai-backend pytest backend/tests/unit            # unit tests, no services needed
-uv run --package explorai-backend pytest -m integration                # needs real Postgres and Redis
+uv run --package explorai-backend pytest backend/tests -m "not integration"
 ```
+
+Integration tests need real Postgres and Redis. Run from the repository root (the `backend/tests`
+path matters: it makes pytest pick up `backend/pyproject.toml`):
+
+```
+cp .env.example infra/.env                                                          # once; git-ignored
+docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait       # start the stack
+set -a; . infra/.env; set +a                                                        # export DATABASE_URL, REDIS_URL, ...
+uv run --package explorai-backend pytest backend/tests -m integration
+docker compose --env-file infra/.env -f infra/docker-compose.yml down -v            # stop and remove the stack
+```
+
+(`set -a; . infra/.env; set +a` is POSIX shell syntax, e.g. Git Bash.) Integration tests fail, not
+skip, when `DATABASE_URL`/`REDIS_URL` are missing.
+
+On Windows, the psycopg async driver needs the selector event loop instead of the default
+ProactorEventLoop. The tests handle this in `backend/tests/conftest.py`; running uvicorn natively on
+Windows would need the same, while Linux containers do not.
 
 Coverage must stay at or above 80%.
 
@@ -31,6 +50,8 @@ Read from the process environment only (no `.env` loading); the app fails fast i
 | Variable | Required | Description |
 | --- | --- | --- |
 | `APP_ENV` | yes | `development`, `test` or `production` |
-| `DATABASE_URL` | yes | PostgreSQL DSN, e.g. `postgresql://user:pass@localhost:5432/explorai` |
-| `REDIS_URL` | yes | Redis DSN, e.g. `redis://localhost:6379/0` |
+| `DATABASE_URL` | yes | PostgreSQL DSN, e.g. `postgresql://user:pass@127.0.0.1:5432/explorai` |
+| `REDIS_URL` | yes | Redis DSN, e.g. `redis://127.0.0.1:6379/0` |
 | `CHECK_TIMEOUT_SECONDS` | no | Per-dependency readiness timeout, default `2.0` |
+
+Use `127.0.0.1` rather than `localhost`: on Windows `localhost` tries `::1` first and stalls each probe by about 2 s.

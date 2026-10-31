@@ -6,6 +6,9 @@ from redis.asyncio import from_url
 
 async def check_postgres(database_url: str) -> bool:
     try:
+        # connect_timeout only bounds the standalone probe. On the /health/ready route
+        # the effective bound is asyncio.wait_for(check_timeout_seconds, default 2.0 s),
+        # which is shorter.
         conn_cm = await psycopg.AsyncConnection.connect(database_url, connect_timeout=5)
         async with conn_cm as conn:
             await conn.execute("SELECT 1")
