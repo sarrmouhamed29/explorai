@@ -33,6 +33,7 @@ markers = [
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+extend-exclude = ["src/explorai_db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "C4", "RUF"]
