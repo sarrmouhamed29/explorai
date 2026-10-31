@@ -28,6 +28,10 @@ _ATOM = "{http://www.w3.org/2005/Atom}"
 _ABS_ID = re.compile(r"/abs/(?P<id>.+?)(?:v\d+)?$")
 
 
+def _https(url: str) -> str:
+    return "https://" + url[len("http://") :] if url.startswith("http://") else url
+
+
 def _text(element: ET.Element | None) -> str:
     return " ".join((element.text or "").split()) if element is not None else ""
 
@@ -112,7 +116,7 @@ class ArxivSource:
             items.append(
                 SourceItem(
                     external_id=external_id,
-                    url=pdf_url,
+                    url=_https(pdf_url),
                     title=_text(entry.find(f"{_ATOM}title")) or None,
                     metadata={
                         "authors": authors,

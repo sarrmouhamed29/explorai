@@ -50,7 +50,8 @@ def test_parses_entries() -> None:
     items = source().list_items("cat:cs.CL", 5)
 
     assert [i.external_id for i in items] == ["2401.01234", "cs/0112017"]
-    assert items[0].url == "http://arxiv.org/pdf/2401.01234v2"
+    # The feed links over http; the safe fetch only accepts https.
+    assert items[0].url == "https://arxiv.org/pdf/2401.01234v2"
     assert items[0].title == "Retrieval Augmented Generation Revisited"
     assert items[0].metadata["authors"] == "Ada Lovelace, Alan Turing"
     assert items[0].metadata["published"] == "2024-01-02T10:00:00Z"
