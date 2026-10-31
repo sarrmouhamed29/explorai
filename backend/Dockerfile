@@ -7,6 +7,8 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY backend/ backend/
+COPY db/ db/
+COPY pipelines/ pipelines/
 RUN uv sync --frozen --package explorai-backend --no-dev --no-editable
 
 FROM python:3.12.16-slim AS runtime
