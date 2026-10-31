@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-compose up -d --build --wait
+compose up -d --build --wait --wait-timeout 300
 
 check() {
   local name="$1" url="$2" code
