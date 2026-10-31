@@ -43,6 +43,17 @@ Windows would need the same, while Linux containers do not.
 
 Coverage must stay at or above 80%.
 
+## OpenAPI contract
+
+`backend/openapi.json` is the versioned API contract (deterministic: sorted keys, 2-space indent, LF).
+Regenerate it after any route or schema change, from the repository root (no services or env vars needed):
+
+```
+uv run --package explorai-backend python backend/scripts/export_openapi.py
+```
+
+A unit test fails when the committed file drifts from the app.
+
 ## Environment variables
 
 Read from the process environment only (no `.env` loading); the app fails fast if one is invalid.
