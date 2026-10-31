@@ -4,10 +4,14 @@ from functools import lru_cache
 from typing import Any, Literal
 
 from pydantic import PostgresDsn, RedisDsn
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Validation errors name the offending field but never echo its value: a DSN
+    # carries the database password and startup errors end up in the logs.
+    model_config = SettingsConfigDict(hide_input_in_errors=True)
+
     app_env: Literal["development", "test", "production"]
     database_url: PostgresDsn
     redis_url: RedisDsn

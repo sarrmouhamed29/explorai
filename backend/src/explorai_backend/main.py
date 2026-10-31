@@ -1,10 +1,22 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from explorai_backend.api.health import router as health_router
+from explorai_backend.config import get_settings
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Fail fast: invalid or missing configuration aborts startup instead of
+    # surfacing on the first /health/ready request. Not run by create_app().openapi().
+    get_settings()
+    yield
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Explorai API")
+    app = FastAPI(title="Explorai API", lifespan=lifespan)
     app.include_router(health_router)
     return app
 
