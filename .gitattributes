@@ -1,2 +1,5 @@
 backend/openapi.json text eol=lf
 frontend/src/api/schema.d.ts text eol=lf
+*.sh text eol=lf
+frontend/Dockerfile text eol=lf
+backend/Dockerfile text eol=lf
