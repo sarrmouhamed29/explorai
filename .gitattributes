@@ -1,0 +1,2 @@
+backend/openapi.json text eol=lf
+frontend/src/api/schema.d.ts text eol=lf
