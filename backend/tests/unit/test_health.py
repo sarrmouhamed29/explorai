@@ -30,11 +30,13 @@ async def _boom() -> bool:
 
 
 def _settings(timeout: float = 2.0) -> Settings:
-    return Settings(
-        app_env="test",
-        database_url="postgresql://u:p@localhost:5432/db",  # type: ignore[arg-type]
-        redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
-        check_timeout_seconds=timeout,
+    return Settings.model_validate(
+        {
+            "app_env": "test",
+            "database_url": "postgresql://u:p@localhost:5432/db",
+            "redis_url": "redis://localhost:6379/0",
+            "check_timeout_seconds": timeout,
+        }
     )
 
 

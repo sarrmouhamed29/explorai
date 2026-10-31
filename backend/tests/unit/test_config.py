@@ -18,7 +18,7 @@ def test_settings_loads_from_environment(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("APP_ENV", "test")
 
-    settings = Settings()
+    settings = Settings.from_env()
 
     assert settings.app_env == "test"
     assert str(settings.database_url) == PG_URL
@@ -33,7 +33,7 @@ def test_missing_database_url_raises_and_names_variable(
     monkeypatch.setenv("APP_ENV", "test")
 
     with pytest.raises(ValidationError) as exc_info:
-        Settings()
+        Settings.from_env()
 
     assert "database_url" in str(exc_info.value)
 
@@ -44,7 +44,7 @@ def test_non_postgres_url_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "test")
 
     with pytest.raises(ValidationError):
-        Settings()
+        Settings.from_env()
 
 
 def test_invalid_app_env_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,4 +53,4 @@ def test_invalid_app_env_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "staging")
 
     with pytest.raises(ValidationError):
-        Settings()
+        Settings.from_env()

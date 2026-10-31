@@ -7,7 +7,10 @@ describe("HealthStatus", () => {
   it('shows "Backend ready" and each dependency as ok when /health/ready returns 200', async () => {
     server.use(
       http.get("/health/ready", () =>
-        HttpResponse.json({ status: "ok", checks: { postgres: "ok", redis: "ok" } }),
+        HttpResponse.json({
+          status: "ok",
+          checks: { postgres: "ok", redis: "ok" },
+        }),
       ),
     );
     render(<HealthStatus />);

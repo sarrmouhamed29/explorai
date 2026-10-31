@@ -19,6 +19,8 @@ dev = [
     "httpx",
     "ruff",
     "mypy",
+    "pre-commit",
+    "httpx2>=2.16.0",
 ]
 
 [build-system]
@@ -36,5 +38,22 @@ markers = [
     "integration: tests that need real Postgres/Redis services",
 ]
 
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "C4", "RUF"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["explorai_backend"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+python_version = "3.12"
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
