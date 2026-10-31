@@ -8,10 +8,17 @@ Sub-project 0, **Foundations**, is implemented as a walking skeleton: the smalle
 
 - Backend: FastAPI service with `GET /health/live` and `GET /health/ready` (checks PostgreSQL and Redis).
 - Frontend: one React page that shows the backend readiness, through a TypeScript client generated from the backend's OpenAPI contract.
-- Docker Compose stack: PostgreSQL (pgvector image), Redis, backend, frontend.
+- Docker Compose stack: PostgreSQL (pgvector image), Redis, backend, frontend (and, since ingestion, `migrate`, `prefect` and `pipelines`).
 - Tests, pre-commit hooks and GitHub Actions CI.
 
-Nothing else exists yet. Sub-project 1 (Ingestion) is next. The full roadmap is in [`plan.md`](plan.md).
+Sub-project 1, **Ingestion**, is implemented on top of it: a pipeline that collects arXiv papers and web pages, extracts and cleans their text, marks duplicates and stores versioned text in PostgreSQL.
+
+- `db/`: the shared schema (SQLAlchemy models, Alembic migrations).
+- `pipelines/`: sources, safe download, PDF and HTML extraction, cleaning, deduplication, Prefect flows and a nightly schedule. Replaying a batch changes nothing.
+- Compose gains a one-shot `migrate` service, a Prefect server (<http://127.0.0.1:4200>) and the `pipelines` service.
+- Measured baseline for PDF extraction: [`docs/evaluation/extraction-baseline.md`](docs/evaluation/extraction-baseline.md).
+
+There is no user-facing feature yet (no search, no answers). Sub-project 2 (Core backend) is next. The full roadmap is in [`plan.md`](plan.md).
 
 ## Prerequisites
 
@@ -63,6 +70,14 @@ uv run --package explorai-backend pytest backend/tests -m "not integration"
 
 Backend integration tests need the Compose stack running and the variables from `infra/.env` exported. The exact steps are in [`backend/README.md`](backend/README.md#test).
 
+Each Python package is tested on its own (each has its own configuration and coverage gate); `db` and `pipelines` integration tests need `DATABASE_URL` pointing at a PostgreSQL superuser:
+
+```bash
+uv run pytest db/tests
+uv run pytest pipelines/tests
+```
+
+Details: [`db/README.md`](db/README.md#test) and [`pipelines/README.md`](pipelines/README.md#test).
 Frontend tests, type check and lint:
 
 ```bash
@@ -75,6 +90,7 @@ End-to-end smoke test (builds and starts the whole stack under its own Compose p
 
 ```bash
 bash infra/smoke.sh
+SMOKE_NETWORK=1 bash infra/smoke.sh      # also ingests two real papers from arXiv (needs internet)
 ```
 
 ## Notes on configuration
@@ -86,21 +102,24 @@ The backend reads its configuration from environment variables only and refuses 
 ```
 backend/            FastAPI service (src/explorai_backend, tests, Dockerfile, openapi.json)
 frontend/           Vite + React + TypeScript app, generated API client, Vitest tests, Dockerfile
+db/                 shared schema: models, Alembic migrations, tests
+pipelines/          ingestion: sources, extraction, cleaning, dedup, Prefect flows, Dockerfile
 infra/              docker-compose.yml and smoke.sh
 docs/adr/           Architecture Decision Records
 docs/concepts/      Concept notes with interview questions and answers
+docs/evaluation/    Measured baselines (PDF extraction quality)
 docs/superpowers/   Specs and implementation plans of each sub-project
 .github/            CI workflow, Dependabot configuration, pull request template
-pyproject.toml      uv workspace root (member: backend)
+pyproject.toml      uv workspace root (members: backend, db, pipelines)
 .pre-commit-config.yaml, .env.example, cliff.toml, CHANGELOG.md
 ```
 
 ## More documentation
 
 - [`plan.md`](plan.md): master plan and architecture decisions
-- [`docs/`](docs/): [ADRs](docs/adr/README.md), [concept notes](docs/concepts/00-foundations.md), specs and plans
+- [`docs/`](docs/): [ADRs](docs/adr/README.md), [concept notes](docs/concepts/00-foundations.md), [ingestion concepts](docs/concepts/01-ingestion.md), specs and plans
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): branching, commits, hooks, definition of done, releases
-- [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md)
+- [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md), [`db/README.md`](db/README.md), [`pipelines/README.md`](pipelines/README.md)
 
 ## License
 

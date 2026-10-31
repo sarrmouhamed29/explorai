@@ -34,3 +34,6 @@ compose.override.yaml
 .idea/
 .vscode/
 .DS_Store
+
+# Local blob store for native pipeline runs (BLOB_DIR)
+var/
