@@ -15,6 +15,20 @@ From the repository root, with the environment variables below set:
 uv run --package explorai-backend uvicorn explorai_backend.main:app --reload
 ```
 
+## Run the stack
+
+The full stack (backend, PostgreSQL, Redis) runs in Docker. From the repository root:
+
+```
+cp .env.example infra/.env                                                          # once; git-ignored
+docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --build --wait
+curl http://127.0.0.1:8000/health/ready
+docker compose --env-file infra/.env -f infra/docker-compose.yml down -v
+```
+
+The backend container runs as a non-root user and reaches the databases by service name (Compose
+overrides `DATABASE_URL` and `REDIS_URL`; the `127.0.0.1` values in `infra/.env` are for host-side tests).
+
 ## Test
 
 Unit tests need no services:
