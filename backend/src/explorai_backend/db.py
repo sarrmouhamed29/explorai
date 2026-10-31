@@ -6,7 +6,8 @@ from redis.asyncio import from_url
 
 async def check_postgres(database_url: str) -> bool:
     try:
-        async with await psycopg.AsyncConnection.connect(database_url) as conn:
+        conn_cm = await psycopg.AsyncConnection.connect(database_url, connect_timeout=5)
+        async with conn_cm as conn:
             await conn.execute("SELECT 1")
         return True
     except Exception:  # noqa: BLE001 - probes must never raise
