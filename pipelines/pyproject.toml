@@ -56,6 +56,12 @@ python_version = "3.12"
 module = ["fitz", "pymupdf", "pymupdf.*", "trafilatura", "trafilatura.*", "datasketch", "datasketch.*"]
 ignore_missing_imports = true
 
+# PyMuPDF and datasketch ship partial or no type information; relax untyped-call
+# checking only in the modules that call them.
+[[tool.mypy.overrides]]
+module = ["explorai_pipelines.extract.pdf", "explorai_pipelines.testing", "explorai_pipelines.dedup"]
+disallow_untyped_calls = false
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
