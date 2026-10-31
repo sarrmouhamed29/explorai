@@ -1,6 +1,6 @@
 # Explorai frontend
 
-Vite + React + TypeScript dashboard. It talks to the backend through a typed client generated from the committed OpenAPI contract (`backend/openapi.json`), so API types cannot drift by hand. For now it shows the backend readiness (`GET /health/ready`).
+Vite + React + TypeScript dashboard. It talks to the backend through a typed client generated from the committed OpenAPI contract (`backend/openapi.json`), so API types cannot drift by hand. For now it shows the backend readiness (`GET /health/ready`), polled every 5 seconds (`POLL_INTERVAL_MS` in `src/hooks/useBackendHealth.ts`); the last state stays on screen between refreshes and polling stops when the page unmounts.
 
 ## Install
 

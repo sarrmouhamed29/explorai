@@ -18,6 +18,7 @@ Rules:
 - The CI checks (backend, frontend, contract, docker, security) must be green before merging.
 - Branch protection that enforces the two rules above is configured on GitHub by the maintainer, separately from this repository's files. Until it is enabled, the rules are a convention.
 - Pull requests use the template in `.github/pull_request_template.md`.
+- Dependabot pull requests target `develop` (`target-branch` in `.github/dependabot.yml`). Dependabot reads its configuration from the default branch, so it only becomes active once this file reaches `main` (first release).
 
 ## Commits: Conventional Commits
 
@@ -99,6 +100,6 @@ Release automation tools (release-please, semantic-release) were not chosen beca
 ## Windows notes
 
 - Use `127.0.0.1`, not `localhost`. On Windows `localhost` resolves to `::1` (IPv6) first. The services listen on IPv4 only, so each probe waits for a failed IPv6 attempt before falling back, and health checks stall (about 5 seconds for PostgreSQL's libpq, about 2 seconds for Redis).
-- Line endings: `.gitattributes` forces LF for `*.sh`, `Dockerfile`, `backend/openapi.json` and `frontend/src/api/schema.d.ts`. CRLF in a shell script or Dockerfile breaks it inside a Linux container, and CRLF in the generated files would make the CI drift check fail.
+- Line endings: `.gitattributes` forces LF for every text file (`* text=auto eol=lf`), whatever `core.autocrlf` says. CRLF in a shell script or Dockerfile breaks it inside a Linux container, CRLF in the generated files would make the CI drift check fail, and CRLF anywhere makes `pnpm format:check` fail.
 - Running the backend natively on Windows needs the selector event loop for psycopg async; the tests set it in `backend/tests/conftest.py`. Linux containers do not need it.
 - Use Git Bash for the shell commands in the documentation.
