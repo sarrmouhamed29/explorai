@@ -39,8 +39,8 @@ def test_real_provider_names_missing_keys_without_values(
     with pytest.raises(ValidationError) as excinfo:
         RagSettings.from_env()
     message = str(excinfo.value)
-    assert "anthropic_api_key" in message
-    assert "voyage_api_key" in message
+    assert "ANTHROPIC_API_KEY" in message
+    assert "VOYAGE_API_KEY" in message
 
 
 def test_real_provider_with_keys_hides_them(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,15 +53,45 @@ def test_real_provider_with_keys_hides_them(monkeypatch: pytest.MonkeyPatch) -> 
     assert settings.anthropic_api_key.get_secret_value() == "sk-secret-anthropic"
 
 
-def test_validation_error_never_echoes_a_value(
-    monkeypatch: pytest.MonkeyPatch,
+def test_field_error_never_echoes_the_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An operator pasting a key into the wrong variable must not see it in the error.
+    monkeypatch.setenv("RAG_PROVIDER", "fake")
+    monkeypatch.setenv("RAG_CHUNK_WORDS", "sk-secret-pasted-key")
+    with pytest.raises(ValidationError) as excinfo:
+        RagSettings.from_env()
+    assert "chunk_words" in str(excinfo.value)
+    assert "sk-secret" not in str(excinfo.value)
+
+
+def test_model_error_never_echoes_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_PROVIDER", "real")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-anthropic")
+    with pytest.raises(ValidationError) as excinfo:
+        RagSettings.from_env()
+    assert "VOYAGE_API_KEY" in str(excinfo.value)
+    assert "sk-secret" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+@pytest.mark.parametrize("variable", ["ANTHROPIC_API_KEY", "VOYAGE_API_KEY"])
+def test_blank_keys_count_as_missing(
+    monkeypatch: pytest.MonkeyPatch, variable: str, blank: str
 ) -> None:
     monkeypatch.setenv("RAG_PROVIDER", "real")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-anthropic")
-    monkeypatch.setenv("RAG_DENSE_CANDIDATES", "-7")
+    monkeypatch.setenv("VOYAGE_API_KEY", "sk-secret-voyage")
+    monkeypatch.setenv(variable, blank)
     with pytest.raises(ValidationError) as excinfo:
         RagSettings.from_env()
-    assert "sk-secret" not in str(excinfo.value)
+    assert variable in str(excinfo.value)
+
+
+def test_blank_keys_are_fine_with_the_fake_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAG_PROVIDER", "fake")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    assert RagSettings.from_env().provider == "fake"
 
 
 @pytest.mark.parametrize("value", ["0", "-1"])

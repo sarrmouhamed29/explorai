@@ -51,13 +51,21 @@ class RagSettings(BaseSettings):
     @model_validator(mode="after")
     def _real_provider_needs_keys(self) -> Self:
         if self.provider == "real":
+            required = {
+                "ANTHROPIC_API_KEY": self.anthropic_api_key,
+                "VOYAGE_API_KEY": self.voyage_api_key,
+            }
+            # Missing, empty or blank all count as missing (Compose turns an unset
+            # ${KEY:-} into an empty string).
             missing = [
-                name
-                for name in ("anthropic_api_key", "voyage_api_key")
-                if getattr(self, name) is None
+                variable
+                for variable, key in required.items()
+                if key is None or not key.get_secret_value().strip()
             ]
             if missing:
-                raise ValueError("provider 'real' requires: " + ", ".join(missing))
+                raise ValueError(
+                    "provider 'real' requires a non-empty " + ", ".join(missing)
+                )
         return self
 
     @classmethod
