@@ -2,6 +2,11 @@
 members = ["backend", "db", "pipelines"]
 
 [tool.uv]
-# Prefect 3.8.x server code calls Body(min_items=...), which FastAPI removed in
-# 0.155. Prefect itself requires fastapi>=0.139; keep the shared lock below the break.
-constraint-dependencies = ["fastapi<0.154"]
+# Prefect 3.8.x does not work with the newest releases of two of its dependencies; keep
+# the shared lock below the break (revisit when Prefect is upgraded).
+# - FastAPI: the server code calls Body(min_items=...), which FastAPI removed in 0.155.
+#   Prefect itself requires fastapi>=0.139.
+# - SQLAlchemy 2.1: the server scheduler fails with "Can't evaluate bulk DML statement;
+#   please supply a bulk_dml decorated function", so scheduled runs never start
+#   (found by the first real smoke test, run on CI).
+constraint-dependencies = ["fastapi<0.154", "sqlalchemy<2.1"]
