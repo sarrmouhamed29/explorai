@@ -8,7 +8,7 @@ Sub-project 0, **Foundations**, is implemented as a walking skeleton: the smalle
 
 - Backend: FastAPI service with `GET /health/live` and `GET /health/ready` (checks PostgreSQL and Redis).
 - Frontend: one React page that shows the backend readiness, through a TypeScript client generated from the backend's OpenAPI contract.
-- Docker Compose stack: PostgreSQL (pgvector image), Redis, backend, frontend (and, since ingestion, `migrate`, `prefect` and `pipelines`).
+- Docker Compose stack: PostgreSQL (pgvector image), Redis, backend, frontend (and, since ingestion, `migrate`, `prefect` and `pipelines`; since RAG, `qdrant`).
 - Tests, pre-commit hooks and GitHub Actions CI.
 
 Sub-project 1, **Ingestion**, is implemented on top of it: a pipeline that collects arXiv papers and web pages, extracts and cleans their text, marks duplicates and stores versioned text in PostgreSQL.
@@ -26,7 +26,16 @@ Sub-project 2, **Core backend**, is implemented on top of both: a multi-user API
 - Concepts and interview Q&A: [`docs/concepts/02-core-backend.md`](docs/concepts/02-core-backend.md); API and `curl` examples: [`backend/README.md`](backend/README.md#api).
 - The end-to-end smoke test and the integration suites were written but have not yet been run against this code on the maintainer's machine (Docker was unavailable); run them, or let CI, before merging.
 
-There is still no search or answer feature, and no login page in the frontend (sub-project 6). Sub-project 3 (RAG) is next. The full roadmap is in [`plan.md`](plan.md).
+Sub-project 3, **RAG**, is implemented on top of them: questions answered from the documents a user may read, with citations checked by code.
+
+- `ai/` (`explorai_ai`): chunking, a local sparse encoder, hybrid search in Qdrant (dense and sparse vectors fused by RRF), re-reading of chunk texts from PostgreSQL under Row-Level Security, reranking, optional query rewriting, answers from Claude through a forced tool, and verification of every quote against its source. Three refusal levels give `insufficient_evidence` when the corpus does not support an answer.
+- `POST /api/v1/ask` (30 questions per hour per user) and an `indexed` flag on documents; the pipelines service gains the `index-pending` (30 s) and `prune-index` (hourly) deployments; Compose and CI gain a `qdrant` service.
+- Isolation holds down to retrieval in two layers: one function builds every Qdrant filter, and Qdrant holds no text, so everything shown is re-read under RLS.
+- Every test, CI and the dev stack use deterministic fake models (`RAG_PROVIDER=fake`): no network, no API key. With `RAG_PROVIDER=real`, private text is sent to Voyage AI and Anthropic.
+- Concepts and interview Q&A: [`docs/concepts/03-rag.md`](docs/concepts/03-rag.md); choices: ADRs [0011](docs/adr/0011-qdrant-and-retrieval-isolation.md) to [0014](docs/adr/0014-providers-behind-interfaces.md); quality method: [`docs/evaluation/rag-baseline.md`](docs/evaluation/rag-baseline.md).
+- **Open checks before merging:** Docker was unresponsive during the whole sub-project, so the integration suites of Tasks 3 to 10 (including the search-isolation suite and its mutation proof), the smoke test, the image builds and the Qdrant health check have **never run**; CI is their first run, and nothing merges before it is green. The real providers have never been called, and the annotated questions are not yet validated by the maintainer: no quality number exists.
+
+There is still no login, upload or chat page in the frontend (sub-project 6). Sub-project 4 (Evaluation) is next. The full roadmap is in [`plan.md`](plan.md).
 
 ## Prerequisites
 
@@ -78,14 +87,16 @@ uv run --package explorai-backend pytest backend/tests -m "not integration"
 
 Backend integration tests (including the user-isolation suite) need the Compose stack running and the variables from `infra/.env` exported. The exact steps are in [`backend/README.md`](backend/README.md#test).
 
-Each Python package is tested on its own (each has its own configuration and coverage gate); `db` and `pipelines` integration tests need `DATABASE_URL` pointing at a PostgreSQL superuser:
+Each Python package is tested on its own (each has its own configuration and coverage gate); `db`, `pipelines` and `ai` integration tests need `DATABASE_URL` pointing at a PostgreSQL superuser, and `pipelines` and `ai` also `QDRANT_URL` and `QDRANT_API_KEY`:
 
 ```bash
 uv run pytest db/tests
 uv run pytest pipelines/tests
+uv run pytest ai/tests
+uv run pytest ai/tests -m "not integration" --no-cov     # no services
 ```
 
-Details: [`db/README.md`](db/README.md#test) and [`pipelines/README.md`](pipelines/README.md#test).
+Details: [`db/README.md`](db/README.md#test), [`pipelines/README.md`](pipelines/README.md#test) and [`ai/README.md`](ai/README.md#test-and-check).
 Frontend tests, type check and lint:
 
 ```bash
@@ -94,7 +105,7 @@ pnpm --dir frontend typecheck
 pnpm --dir frontend lint
 ```
 
-End-to-end smoke test (builds and starts the whole stack under its own Compose project name, checks the backend, the frontend and the proxied health route, then signs up two users, uploads a PDF, waits for the pipeline to process it and checks that the second user gets a 404, then tears it down; allow up to a few minutes):
+End-to-end smoke test (builds and starts the whole stack under its own Compose project name, checks the backend, the frontend and the proxied health route, then signs up two users, uploads a PDF, waits for the pipeline to process and index it, asks a question that must be answered with citations and a nonsense question that must be refused, checks that the second user gets a 404 on the document and on a question about it, then tears it down; allow up to a few minutes; fake models, no key):
 
 ```bash
 bash infra/smoke.sh
@@ -108,26 +119,27 @@ The backend reads its configuration from environment variables only and refuses 
 ## Repository layout
 
 ```
-backend/            FastAPI service: auth, documents API (src/explorai_backend, tests, Dockerfile, openapi.json)
+backend/            FastAPI service: auth, documents and ask API (src/explorai_backend, tests, Dockerfile, openapi.json)
+ai/                 RAG library: chunking, providers and fakes, Qdrant index, retriever, citations, measurement
 frontend/           Vite + React + TypeScript app, generated API client, Vitest tests, Dockerfile
 db/                 shared persistence: models, Alembic migrations, RLS session, blob store, tests
-pipelines/          ingestion: sources, extraction, cleaning, dedup, Prefect flows, Dockerfile
+pipelines/          ingestion and indexing: sources, extraction, cleaning, dedup, chunk indexing, Prefect flows, Dockerfile
 infra/              docker-compose.yml and smoke.sh
 docs/adr/           Architecture Decision Records
 docs/concepts/      Concept notes with interview questions and answers
-docs/evaluation/    Measured baselines (PDF extraction quality)
+docs/evaluation/    Measured baselines (PDF extraction quality) and the RAG measurement method
 docs/superpowers/   Specs and implementation plans of each sub-project
 .github/            CI workflow, Dependabot configuration, pull request template
-pyproject.toml      uv workspace root (members: backend, db, pipelines)
+pyproject.toml      uv workspace root (members: backend, db, pipelines, ai)
 .pre-commit-config.yaml, .env.example, cliff.toml, CHANGELOG.md
 ```
 
 ## More documentation
 
 - [`plan.md`](plan.md): master plan and architecture decisions
-- [`docs/`](docs/): [ADRs](docs/adr/README.md), [concept notes](docs/concepts/00-foundations.md), [ingestion concepts](docs/concepts/01-ingestion.md), [core backend concepts](docs/concepts/02-core-backend.md), specs and plans
+- [`docs/`](docs/): [ADRs](docs/adr/README.md), [concept notes](docs/concepts/00-foundations.md), [ingestion concepts](docs/concepts/01-ingestion.md), [core backend concepts](docs/concepts/02-core-backend.md), [RAG concepts](docs/concepts/03-rag.md), specs and plans
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): branching, commits, hooks, definition of done, releases
-- [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md), [`db/README.md`](db/README.md), [`pipelines/README.md`](pipelines/README.md)
+- [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md), [`db/README.md`](db/README.md), [`pipelines/README.md`](pipelines/README.md), [`ai/README.md`](ai/README.md)
 
 ## License
 

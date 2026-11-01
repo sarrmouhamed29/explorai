@@ -5,8 +5,8 @@ public corpus, a value is a private document. Uniqueness that involves it uses
 ``NULLS NOT DISTINCT`` so that public rows (owner ``NULL``) are still unique.
 
 Row-Level Security policies, the ``explorai_app`` role and the ``app_user()``
-function live in migration 0003 only: they are server-side objects that the
-models cannot express (see ``explorai_db.rls``).
+function live in migrations 0003 and 0005 only: they are server-side objects
+that the models cannot express (see ``explorai_db.rls``).
 """
 
 import uuid
@@ -29,6 +29,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# Width of ``chunk_index_entries.index_name`` (migration 0005 states it literally).
+INDEX_NAME_MAX_LENGTH = 128
 
 
 def _now() -> datetime:
@@ -123,6 +126,15 @@ class DocumentVersion(Base):
         CheckConstraint(
             "status IN ('ok', 'failed', 'unextractable')", name="status_allowed"
         ),
+        # Serves "the latest ok version of a document" (explorai_ai.store), run
+        # on every question: PostgreSQL does not index foreign key columns.
+        Index(
+            "ix_document_versions_document_status_created",
+            "document_id",
+            "status",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -138,6 +150,12 @@ class DocumentVersion(Base):
         ForeignKey("document_versions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Set by the indexing pipeline once the version has been cut into chunks, even
+    # when that produced none: without it, a version with zero chunks would look
+    # "not chunked yet" forever and be chunked again on every pass.
+    chunked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class Section(Base):
@@ -151,6 +169,51 @@ class Section(Base):
     ordinal: Mapped[int] = mapped_column(Integer)
     heading: Mapped[str | None] = mapped_column(Text, nullable=True)
     text: Mapped[str] = mapped_column(Text)
+
+
+class Chunk(Base):
+    """A retrieval unit cut from the sections of one version.
+
+    Derived data: it can always be rebuilt from ``sections``. The vectors live in
+    Qdrant under the chunk id; the text is only here, so every answer re-reads it
+    under Row-Level Security (migration 0005).
+    """
+
+    __tablename__ = "chunks"
+    __table_args__ = (UniqueConstraint("version_id", "ordinal"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE")
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    heading: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text: Mapped[str] = mapped_column(Text)
+    word_count: Mapped[int] = mapped_column(Integer)
+    text_hash: Mapped[str] = mapped_column(String(64))
+
+
+class ChunkIndexEntry(Base):
+    """A chunk is in the vector index ``index_name``.
+
+    ``index_name`` is the Qdrant collection name, derived from the embedding model
+    *and* dimension (``QdrantIndex.collection_name``): changing either one is a new
+    index in which every chunk is pending. A chunk without an entry for the
+    current index is pending. The old entries stay in place, so the pipeline can
+    fill the new collection in the background while an API still configured with
+    the old model keeps serving the old one, until its own settings change.
+    """
+
+    __tablename__ = "chunk_index_entries"
+
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
+    )
+    # The longest name settings may produce is checked by RagSettings.
+    index_name: Mapped[str] = mapped_column(
+        String(INDEX_NAME_MAX_LENGTH), primary_key=True
+    )
+    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class IngestionRun(Base):

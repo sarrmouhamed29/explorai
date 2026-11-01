@@ -5,6 +5,7 @@ description = "Explorai ingestion pipelines"
 requires-python = ">=3.12"
 dependencies = [
     "explorai-db",
+    "explorai-ai",
     "pydantic-settings",
     "prefect",
     "httpx",
@@ -23,6 +24,7 @@ dev = [
 
 [tool.uv.sources]
 explorai-db = { workspace = true }
+explorai-ai = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -34,7 +36,7 @@ packages = ["src/explorai_pipelines"]
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib --cov=explorai_pipelines --cov-fail-under=80"
 markers = [
-    "integration: tests that need a real PostgreSQL (DATABASE_URL)",
+    "integration: tests that need real services (PostgreSQL; Qdrant for indexing)",
 ]
 
 [tool.ruff]
@@ -45,7 +47,7 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "C4", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["explorai_pipelines", "explorai_db"]
+known-first-party = ["explorai_pipelines", "explorai_db", "explorai_ai"]
 
 [tool.mypy]
 strict = true

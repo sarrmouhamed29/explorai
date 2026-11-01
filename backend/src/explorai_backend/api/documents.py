@@ -12,10 +12,12 @@ from typing import Annotated, Any, Literal
 
 import redis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
+from explorai_ai.config import RagSettings
+from explorai_ai.store import ChunkStore
 from explorai_backend.api.auth import CurrentUser
 from explorai_backend.api.pagination import (
     decode_cursor,
@@ -25,12 +27,19 @@ from explorai_backend.api.pagination import (
 )
 from explorai_backend.auth.limits import FixedWindowLimiter
 from explorai_backend.config import Settings, get_settings
-from explorai_backend.deps import get_blob_store, get_redis, get_scoped_sessions
+from explorai_backend.deps import (
+    get_blob_store,
+    get_chunk_store,
+    get_rag_settings,
+    get_redis,
+    get_scoped_sessions,
+)
 from explorai_backend.repositories.documents import DocumentRow, DocumentsRepository
 from explorai_backend.services.documents import (
     DocumentNotFound,
     DocumentReadOnly,
     DocumentsService,
+    IndexedFlag,
     QuotaReached,
     SectionsNotReady,
     UploadsService,
@@ -53,6 +62,9 @@ class DocumentOut(BaseModel):
     owned: bool
     status: Literal["processing", "ready", "failed"]
     created_at: datetime
+    indexed: bool = Field(
+        description="True when the document's chunks are in the live search index"
+    )
 
 
 class DocumentPage(BaseModel):
@@ -71,19 +83,28 @@ class SectionPage(BaseModel):
     next_cursor: str | None
 
 
+def get_indexed_flag(
+    rag: Annotated[RagSettings, Depends(get_rag_settings)],
+    store: Annotated[ChunkStore, Depends(get_chunk_store)],
+) -> IndexedFlag:
+    return IndexedFlag(store, rag.index_name)
+
+
 def get_documents_service(
     sessions: Annotated[ScopedSessions, Depends(get_scoped_sessions)],
+    flag: Annotated[IndexedFlag, Depends(get_indexed_flag)],
 ) -> DocumentsService:
-    return DocumentsService(DocumentsRepository(sessions))
+    return DocumentsService(DocumentsRepository(sessions), flag)
 
 
 def get_uploads_service(
     settings: Annotated[Settings, Depends(get_settings)],
     sessions: Annotated[ScopedSessions, Depends(get_scoped_sessions)],
     blobs: Annotated[BlobStore, Depends(get_blob_store)],
+    flag: Annotated[IndexedFlag, Depends(get_indexed_flag)],
 ) -> UploadsService:
     return UploadsService(
-        DocumentsRepository(sessions), blobs, settings.max_documents_per_user
+        DocumentsRepository(sessions), blobs, settings.max_documents_per_user, flag
     )
 
 
@@ -116,6 +137,7 @@ def _out(row: DocumentRow) -> DocumentOut:
         owned=row.owned,
         status=row.status,
         created_at=row.created_at,
+        indexed=row.indexed,
     )
 
 

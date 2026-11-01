@@ -142,3 +142,52 @@ expect "sections served" "$code" "200"
 
 code="$(api "$WORK/bob.jar" GET "/documents/$doc_id")"
 expect "another user gets 404" "$code" "404"
+
+# --- RAG: indexing and grounded answers (fake models, no key, no network) ------
+# index-pending runs every 30 s after process-pending, so allow another 180 s.
+indexed=""
+for _ in $(seq 1 90); do
+  code="$(api "$WORK/alice.jar" GET "/documents/$doc_id")"
+  if [ "$code" = "200" ] && grep -q '"indexed":true' "$WORK/body"; then
+    indexed="yes"
+    break
+  fi
+  sleep 2
+done
+if [ "$indexed" != "yes" ]; then
+  echo "FAIL: document $doc_id not indexed within 180 s" >&2
+  exit 1
+fi
+echo "PASS: document indexed by the pipeline"
+
+# The fake reranker and generator score a chunk by the share of the question's words
+# it contains (refusal below 0.2 and 0.3). Every word below is in the abstract of the
+# fixture paper (title: "ShallowDefend: Harnessing Shallow Safety Alignment for
+# Multi-Turn Defender"), so the best chunk scores far above both thresholds.
+JSON='Content-Type: application/json'
+code="$(api "$WORK/alice.jar" POST /ask -H "$JSON" \
+  -d "{\"question\":\"shallow safety alignment multi-turn defender\",\"document_id\":\"$doc_id\"}")"
+expect "ask about the uploaded paper" "$code" "200"
+if ! grep -q '"status":"answered"' "$WORK/body"; then
+  echo "FAIL: expected status answered" >&2
+  exit 1
+fi
+if grep -q '"citations":\[\]' "$WORK/body" || ! grep -q '"citations":\[{' "$WORK/body"; then
+  echo "FAIL: answered without a citation" >&2
+  exit 1
+fi
+echo "PASS: answered with citations"
+
+# No word of this question occurs in the corpus: every overlap is 0, below the threshold.
+code="$(api "$WORK/alice.jar" POST /ask -H "$JSON" \
+  -d "{\"question\":\"zxqvbn plorfwik gronkazu\",\"document_id\":\"$doc_id\"}")"
+expect "ask with an unrelated question" "$code" "200"
+if ! grep -q '"status":"insufficient_evidence"' "$WORK/body"; then
+  echo "FAIL: expected status insufficient_evidence" >&2
+  exit 1
+fi
+echo "PASS: refused without evidence"
+
+code="$(api "$WORK/bob.jar" POST /ask -H "$JSON" \
+  -d "{\"question\":\"shallow safety alignment multi-turn defender\",\"document_id\":\"$doc_id\"}")"
+expect "another user asking about this document gets 404" "$code" "404"

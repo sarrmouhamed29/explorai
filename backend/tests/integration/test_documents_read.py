@@ -6,10 +6,19 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from integration.helpers import add_document, add_version, login_as, login_as_existing
+from explorai_ai.config import RagSettings
+from explorai_ai.index import QdrantIndex
+from integration.helpers import (
+    add_document,
+    add_version,
+    index_everything,
+    login_as,
+    login_as_existing,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -315,3 +324,38 @@ def test_forged_ordinal_cursor_is_422(client: TestClient, ordinal: int) -> None:
     )
     assert response.status_code == 422
     assert response.json() == {"detail": "invalid cursor"}
+
+
+def test_documents_expose_indexed_flag(
+    rag_app: FastAPI,
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    qdrant_index: QdrantIndex,
+    rag_settings: RagSettings,
+) -> None:
+    user = login_as(client, "alice@example.org")
+    text = "Sparse and dense retrieval complement each other in practice."
+    ready = add_document(session_factory, user, title="r", created_at=BASE)
+    add_version(session_factory, ready, "ok", BASE, texts=(text,))
+    public = add_document(
+        session_factory, None, title="p", created_at=BASE + timedelta(days=1)
+    )
+    add_version(session_factory, public, "ok", BASE, texts=(text + " Public.",))
+    processing = add_document(
+        session_factory, user, title="w", created_at=BASE + timedelta(days=2)
+    )
+
+    def flags() -> dict[str, bool]:
+        items = client.get("/api/v1/documents").json()["items"]
+        listed = {item["id"]: item["indexed"] for item in items}
+        for document_id in (ready, public, processing):
+            body = client.get(f"/api/v1/documents/{document_id}").json()
+            assert body["indexed"] is listed[str(document_id)]
+        return listed
+
+    assert flags() == {str(ready): False, str(public): False, str(processing): False}
+
+    counters = index_everything(session_factory, qdrant_index, rag_settings)
+
+    assert counters["embedded"] == 2
+    assert flags() == {str(ready): True, str(public): True, str(processing): False}

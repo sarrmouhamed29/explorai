@@ -4,17 +4,21 @@ Every public method is one transaction, so a failure never leaves partial rows.
 """
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select, text, update
+from sqlalchemy import ColumnElement, and_, delete, exists, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import InstrumentedAttribute, Session, sessionmaker
 
+from explorai_ai.chunking import ChunkText, SectionInput
+from explorai_ai.store import is_eligible_version
 from explorai_db.models import (
+    Chunk,
+    ChunkIndexEntry,
     Document,
     DocumentVersion,
     IngestionRun,
@@ -22,6 +26,7 @@ from explorai_db.models import (
     Section,
     Source,
 )
+from explorai_pipelines.dedup import text_hash
 from explorai_pipelines.extract.models import ExtractedSection
 
 
@@ -39,6 +44,32 @@ class ArtifactRef:
 class SavedVersion:
     version_id: uuid.UUID
     document_created: bool
+
+
+@dataclass(frozen=True)
+class VersionToChunk:
+    version_id: uuid.UUID
+    document_id: uuid.UUID
+    owner_id: uuid.UUID | None
+    sections: list[SectionInput]
+
+
+@dataclass(frozen=True)
+class PendingChunk:
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    version_id: uuid.UUID
+    owner_id: uuid.UUID | None
+    heading: str | None
+    text: str
+
+
+# The searchable version of a document: the latest ``ok`` one, when canonical.
+# Written once, in ``explorai_ai.store`` (the API reads chunks through it), and
+# reused here by every indexing query, so the pipeline indexes exactly what the
+# API will return. An integration test checks both sides select the same chunks.
+def _eligible() -> ColumnElement[bool]:
+    return is_eligible_version(DocumentVersion)
 
 
 def _owner_is(
@@ -354,3 +385,140 @@ class Repository:
                 .where(_same_document(source_id, external_id, owner_id))
             ).all()
             return frozenset(str(i) for i in ids)
+
+    # chunks and the vector index (all through the one eligibility rule)
+
+    def versions_to_chunk(self, limit: int) -> list[VersionToChunk]:
+        """Eligible versions not cut into chunks yet, oldest first, with sections."""
+        with self._factory() as session:
+            rows = session.execute(
+                select(
+                    DocumentVersion.id, DocumentVersion.document_id, Document.owner_id
+                )
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(_eligible(), DocumentVersion.chunked_at.is_(None))
+                .order_by(DocumentVersion.created_at, DocumentVersion.id)
+                .limit(limit)
+            ).all()
+            if not rows:
+                return []
+            sections: dict[uuid.UUID, list[SectionInput]] = {row[0]: [] for row in rows}
+            for version_id, heading, body in session.execute(
+                select(Section.version_id, Section.heading, Section.text)
+                .where(Section.version_id.in_(list(sections)))
+                .order_by(Section.version_id, Section.ordinal)
+            ):
+                sections[version_id].append(SectionInput(heading, body))
+            return [
+                VersionToChunk(version_id, document_id, owner_id, sections[version_id])
+                for version_id, document_id, owner_id in rows
+            ]
+
+    def save_chunks(self, version_id: uuid.UUID, chunks: Sequence[ChunkText]) -> None:
+        """Store the chunks of a version and mark it chunked, all or nothing.
+
+        Zero chunks still sets ``chunked_at``, so the version is not chunked again.
+        The marker is set first, conditionally: if it was already set (a version
+        chunked by an earlier pass) nothing is inserted, so a replay can neither
+        duplicate chunks nor hit the ``(version_id, ordinal)`` constraint.
+        """
+        with self._factory.begin() as session:
+            marked = session.execute(
+                update(DocumentVersion)
+                .where(
+                    DocumentVersion.id == version_id,
+                    DocumentVersion.chunked_at.is_(None),
+                )
+                .values(chunked_at=datetime.now(UTC))
+                .returning(DocumentVersion.id)
+            ).first()
+            if marked is None:
+                return
+            session.add_all(
+                Chunk(
+                    version_id=version_id,
+                    ordinal=chunk.ordinal,
+                    heading=chunk.heading,
+                    text=chunk.text,
+                    word_count=chunk.word_count,
+                    text_hash=text_hash(chunk.text),
+                )
+                for chunk in chunks
+            )
+            session.flush()
+
+    def pending_chunks(self, index_name: str, limit: int) -> list[PendingChunk]:
+        """Chunks of eligible versions with no entry for the index ``index_name``."""
+        recorded = (
+            select(ChunkIndexEntry.chunk_id)
+            .where(
+                ChunkIndexEntry.chunk_id == Chunk.id,
+                ChunkIndexEntry.index_name == index_name,
+            )
+            .correlate(Chunk)
+            .exists()
+        )
+        with self._factory() as session:
+            rows = session.execute(
+                select(
+                    Chunk.id,
+                    DocumentVersion.document_id,
+                    Chunk.version_id,
+                    Document.owner_id,
+                    Chunk.heading,
+                    Chunk.text,
+                )
+                .join(DocumentVersion, DocumentVersion.id == Chunk.version_id)
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(_eligible(), ~recorded)
+                .order_by(DocumentVersion.created_at, Chunk.version_id, Chunk.ordinal)
+                .limit(limit)
+            ).all()
+            return [PendingChunk(*row) for row in rows]
+
+    def record_entries(self, chunk_ids: Sequence[uuid.UUID], index_name: str) -> None:
+        """Mark chunks as in the index; recording one twice is a no-op."""
+        if not chunk_ids:
+            return
+        now = datetime.now(UTC)
+        with self._factory.begin() as session:
+            session.execute(
+                pg_insert(ChunkIndexEntry)
+                .values(
+                    [
+                        {
+                            "chunk_id": chunk_id,
+                            "index_name": index_name,
+                            "indexed_at": now,
+                        }
+                        for chunk_id in chunk_ids
+                    ]
+                )
+                .on_conflict_do_nothing(index_elements=["chunk_id", "index_name"])
+            )
+
+    def clear_entries(self, index_name: str) -> int:
+        """Forget every entry of an index, so all its chunks are pending again.
+
+        For an index whose collection no longer exists (Qdrant data lost or
+        deleted): the entries would otherwise claim chunks that are not there.
+        Returns how many entries were removed.
+        """
+        with self._factory.begin() as session:
+            removed = session.execute(
+                delete(ChunkIndexEntry)
+                .where(ChunkIndexEntry.index_name == index_name)
+                .returning(ChunkIndexEntry.chunk_id)
+            ).all()
+            return len(removed)
+
+    def eligible_chunk_ids(self) -> set[uuid.UUID]:
+        """Ids of every chunk of an eligible version: what the index should hold."""
+        with self._factory() as session:
+            return set(
+                session.scalars(
+                    select(Chunk.id)
+                    .join(DocumentVersion, DocumentVersion.id == Chunk.version_id)
+                    .where(_eligible())
+                ).all()
+            )

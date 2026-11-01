@@ -1,6 +1,6 @@
 # 0005. The `ai/` library does not depend on the backend
 
-- Status: Accepted (planned boundary; `ai/` does not exist yet)
+- Status: Accepted (in force since sub-project 3: `ai/` exists, see the status note at the end)
 - Date: 2026-10-31
 
 ## Context
@@ -25,3 +25,12 @@ The AI code will be a separate Python library, `ai/` (with `rag/`, `agents/`, `m
 - The backend stays thin: routing, authentication and validation, with logic delegated to `ai/`.
 - Some friction: shared types (for example request or result models) must live in `ai/` or another shared place, not in `backend/`.
 - This is a plan, not yet code. If the planned layout changes when sub-project 1 or 3 starts, this ADR must be updated or superseded.
+
+## Status note (2026-11-01, sub-project 3)
+
+The library now exists as the workspace member `ai/` (distribution `explorai-ai`, import name `explorai_ai`). Two details differ from the plan above:
+
+- **Flat layout for now.** The RAG modules sit directly in `explorai_ai` (`chunking`, `retriever`, `pipeline`, ...) instead of an `explorai_ai.rag` subpackage. With one sub-project inside, a subpackage would only add a path segment; it can be introduced when `agents/`, `ml/` or `safety/` arrive.
+- **`ai/` depends on `db/`.** `ChunkStore` re-reads chunk texts under Row-Level Security through `explorai_db.rls.ScopedSessions`, and the eligibility rule is SQL over the shared models. The one-way rule holds: `ai/` imports neither `backend/` nor `pipelines/`; `backend/` and `pipelines/` import `ai/`. (The `ai` test suite does import `explorai_pipelines` in one test, which skips when it is absent; the library code does not.)
+
+The boundary is still a convention plus review, not an automated import check.

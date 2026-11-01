@@ -77,6 +77,7 @@ Each entry is one spec → plan → implementation → demo cycle.
 - **Deliverable:** chunking, embeddings, semantic and hybrid search, reranking, query rewriting, answers with citations, handling of missing information.
 - **Depends on:** 1, 2.
 - **Done when:** the assistant answers with verifiable sources and refuses to answer when the corpus lacks the information.
+- **Status:** implemented on `feature/rag` (spec `docs/superpowers/specs/2026-11-01-rag-design.md`, concepts `docs/concepts/03-rag.md`, ADRs 0011 to 0014). Open checks before merge: the integration suites (including search isolation), the smoke test and the Qdrant service have never run (Docker was unavailable), so CI is their first run; the real providers have never been called and the quality measurement has no real result yet.
 
 ### 4. Evaluation
 - **Deliverable:** reference test set, metrics (retrieval accuracy, answer correctness, citation quality, hallucinations, latency, cost), Ragas/DeepEval, Langfuse tracing, automated evaluation in CI.
@@ -128,14 +129,14 @@ Each entry is one spec → plan → implementation → demo cycle.
 
 ## Open points, to settle in the specs
 
-- Qdrant or pgvector (spec 3).
-- LLM and embedding models: hosted API, local (Ollama), or both (spec 3).
-- Airflow or a lighter scheduler for ingestion (spec 1).
-- LangChain or LlamaIndex for RAG (spec 3).
+- Qdrant or pgvector (spec 3): settled, Qdrant (ADR 0011).
+- LLM and embedding models: hosted API, local (Ollama), or both (spec 3): settled, hosted Claude and Voyage behind interfaces (ADR 0014).
+- Airflow or a lighter scheduler for ingestion (spec 1): settled, Prefect (ADR 0006).
+- LangChain or LlamaIndex for RAG (spec 3): settled, neither (ADR 0012).
 - Source of the reference test set (spec 4).
 
 ## Next step
 
 Write the detailed spec of sub-project 0 (Foundations), then its implementation plan. No code and no dependencies before both documents are approved.
 
-Update: sub-projects 0 (Foundations), 1 (Ingestion) and 2 (Core backend) are implemented on `feature/core-backend` (open check before merge: the smoke test and the integration suites have to run against the final code). Sub-project 3 (RAG) comes next, starting with its own spec.
+Update: sub-projects 0 (Foundations), 1 (Ingestion) and 2 (Core backend) are implemented on `feature/core-backend` (open check before merge: the smoke test and the integration suites have to run against the final code). Sub-project 3 (RAG) is implemented on `feature/rag`, with the open checks listed under its status above. Sub-project 4 (Evaluation) comes next, starting with its own spec.
