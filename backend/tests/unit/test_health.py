@@ -35,6 +35,7 @@ def _settings(timeout: float = 2.0) -> Settings:
             "app_env": "test",
             "database_url": "postgresql://u:p@localhost:5432/db",
             "redis_url": "redis://localhost:6379/0",
+            "blob_dir": "blobs",
             "check_timeout_seconds": timeout,
         }
     )

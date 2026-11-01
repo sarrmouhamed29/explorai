@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Explorai backend API"
 requires-python = ">=3.12"
 dependencies = [
+    "explorai-db",
+    "argon2-cffi",
+    "email-validator",
     "fastapi",
     "uvicorn",
     "pydantic-settings",
@@ -21,7 +24,11 @@ dev = [
     "mypy",
     "pre-commit",
     "httpx2>=2.16.0",
+    "fakeredis",
 ]
+
+[tool.uv.sources]
+explorai-db = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -46,7 +53,7 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "C4", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["explorai_backend"]
+known-first-party = ["explorai_backend", "explorai_db"]
 
 [tool.mypy]
 strict = true
