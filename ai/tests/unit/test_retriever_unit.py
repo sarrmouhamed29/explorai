@@ -21,6 +21,7 @@ from explorai_ai.errors import (
 from explorai_ai.fakes import FakeEmbedder
 from explorai_ai.index import QdrantIndex
 from explorai_ai.models import RerankHit, ScoredId
+from explorai_ai.pipeline import AnswerPipeline
 from explorai_ai.retriever import Candidate, RetrievalResult, Retriever, rrf_scores
 from explorai_ai.scope import build_scope_filter
 from explorai_ai.sparse import SparseVector, encode_query
@@ -290,6 +291,17 @@ def test_index_outage_propagates() -> None:
     r = rig([[]], index_error=RetrievalUnavailable("vector store unreachable"))
     with pytest.raises(RetrievalUnavailable):
         r.retriever.retrieve(USER, QUESTION)
+
+
+def test_pipeline_surfaces_an_index_outage_unchanged() -> None:
+    # A rejected or failed vector-store request (QdrantIndex maps it to
+    # RetrievalUnavailable) reaches the route as is, so it answers 503, not 500.
+    outage = RetrievalUnavailable("vector store not ready")
+    r = rig([[]], index_error=outage, rewrite_enabled=False)
+    pipeline = AnswerPipeline(r.retriever, r.generator, settings())
+    with pytest.raises(RetrievalUnavailable) as raised:
+        pipeline.ask(USER, QUESTION)
+    assert raised.value is outage
 
 
 def test_empty_search_is_an_empty_result() -> None:

@@ -120,7 +120,7 @@ def test_supported_answer_is_returned_with_verified_citations() -> None:
 
 
 def test_no_candidates_refuses_without_calling_the_generator() -> None:
-    generator = RecordingGenerator(answered(RawCitation(1, "self-attention")))
+    generator = RecordingGenerator(answered(RawCitation(1, "relies on self-attention")))
     ask, _ = pipeline(RetrievalResult([], None), generator)
 
     result = ask.ask(USER, QUESTION)
@@ -134,7 +134,7 @@ def test_no_candidates_refuses_without_calling_the_generator() -> None:
 
 @pytest.mark.parametrize("best", [0.0, 0.19, 0.1999])
 def test_low_rerank_score_refuses_without_calling_the_generator(best: float) -> None:
-    generator = RecordingGenerator(answered(RawCitation(1, "self-attention")))
+    generator = RecordingGenerator(answered(RawCitation(1, "relies on self-attention")))
     ask, _ = pipeline(
         RetrievalResult([candidate(score=best)], best),
         generator,
@@ -150,7 +150,7 @@ def test_low_rerank_score_refuses_without_calling_the_generator(best: float) -> 
 
 
 def test_score_at_the_threshold_reaches_the_generator() -> None:
-    generator = RecordingGenerator(answered(RawCitation(1, "self-attention")))
+    generator = RecordingGenerator(answered(RawCitation(1, "relies on self-attention")))
     ask, _ = pipeline(
         RetrievalResult([candidate(score=0.2)], 0.2), generator, refusal_threshold=0.2
     )
@@ -162,7 +162,9 @@ def test_threshold_ignored_when_reranking_is_off() -> None:
     # Without reranking there is no comparable relevance score: the retriever
     # reports none, and even a stray low score must not trigger a refusal.
     for best in (None, 0.01):
-        generator = RecordingGenerator(answered(RawCitation(1, "self-attention")))
+        generator = RecordingGenerator(
+            answered(RawCitation(1, "relies on self-attention"))
+        )
         ask, _ = pipeline(
             RetrievalResult([candidate()], best), generator, rerank_enabled=False
         )
@@ -172,7 +174,7 @@ def test_threshold_ignored_when_reranking_is_off() -> None:
 
 def test_failed_reranking_leaves_the_decision_to_the_generator() -> None:
     # Reranking on but failed: best_score is None, the threshold cannot apply.
-    generator = RecordingGenerator(answered(RawCitation(1, "self-attention")))
+    generator = RecordingGenerator(answered(RawCitation(1, "relies on self-attention")))
     ask, _ = pipeline(RetrievalResult([candidate()], None), generator)
     assert ask.ask(USER, QUESTION).status == "answered"
     assert len(generator.sources) == 1
@@ -198,9 +200,11 @@ def test_model_insufficient_becomes_refusal() -> None:
     [
         [],
         [RawCitation(1, "relies on recurrence")],  # not in the source
-        [RawCitation(2, "self-attention")],  # no source 2
-        [RawCitation(0, "self-attention")],
+        [RawCitation(2, "relies on self-attention")],  # no source 2
+        [RawCitation(0, "relies on self-attention")],
         [RawCitation(1, "  ")],
+        [RawCitation(1, "self-attention")],  # in the source, but one word
+        [RawCitation(1, "It drops")],  # in the source, but 8 characters
     ],
 )
 def test_unverifiable_citations_become_refusal(
@@ -295,7 +299,7 @@ def test_nothing_of_the_question_or_texts_is_logged(
     caplog.set_level("DEBUG")
     secret = "zebra-quartz-question"
     for reply in (
-        answered(RawCitation(1, "self-attention")),
+        answered(RawCitation(1, "relies on self-attention")),
         answered(RawCitation(1, "not there")),
     ):
         generator = RecordingGenerator(reply)

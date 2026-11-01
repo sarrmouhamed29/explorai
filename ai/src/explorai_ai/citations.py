@@ -22,8 +22,14 @@ from explorai_ai.models import RawCitation
 if TYPE_CHECKING:
     from explorai_ai.retriever import Candidate
 
-MIN_QUOTE_CHARS = 3
-"""A shorter normalised quote ("on", "a") matches almost anything: it proves nothing."""
+MIN_QUOTE_WORDS = 2
+MIN_QUOTE_CHARS = 10
+"""A quote counts only with at least 2 words and 10 characters once normalised.
+
+"the" or "and the" occur in almost any chunk, so they would let a lazy model (or a
+chunk carrying an injected instruction to cite "the") turn any answer into a
+verified one. A single word, however long, is a keyword, not a quote.
+"""
 
 # Marks a model may put around a quote: straight and curly quotes, the ellipsis
 # character and three dots. Only stripped at the two ends, never inside.
@@ -60,10 +66,11 @@ def verify_citations(
     ``source`` is the 1-based position of the cited chunk in ``candidates`` (the
     numbering of the prompt). A citation is dropped when the source number is out
     of range or when its quote, once normalised and stripped of surrounding quote
-    marks and ellipses, is shorter than ``MIN_QUOTE_CHARS`` or absent from the
-    normalised chunk text. Repeats of the same (source, normalised quote) are
-    kept once, at their first position. The returned quote is the model's own
-    text, whitespace collapsed and stripped of those surrounding marks.
+    marks and ellipses, has fewer than ``MIN_QUOTE_WORDS`` words or
+    ``MIN_QUOTE_CHARS`` characters, or is absent from the normalised chunk text.
+    Repeats of the same (source, normalised quote) are kept once, at their first
+    position. The returned quote is the model's own text, whitespace collapsed
+    and stripped of those surrounding marks.
     """
     kept: list[Citation] = []
     seen: set[tuple[int, str]] = set()
@@ -74,7 +81,7 @@ def verify_citations(
         shown = _strip_edges(" ".join(citation.quote.split()))
         # Normalising may create new edge marks (a fullwidth quote becomes '"').
         needle = _strip_edges(normalise_for_match(shown))
-        if len(needle) < MIN_QUOTE_CHARS:
+        if len(needle) < MIN_QUOTE_CHARS or len(needle.split()) < MIN_QUOTE_WORDS:
             continue
         key = (citation.source, needle)
         if key in seen:

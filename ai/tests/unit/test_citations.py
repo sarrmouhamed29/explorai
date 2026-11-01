@@ -2,7 +2,13 @@ import uuid
 
 import pytest
 
-from explorai_ai.citations import Citation, normalise_for_match, verify_citations
+from explorai_ai.citations import (
+    MIN_QUOTE_CHARS,
+    MIN_QUOTE_WORDS,
+    Citation,
+    normalise_for_match,
+    verify_citations,
+)
 from explorai_ai.models import RawCitation
 from explorai_ai.retriever import Candidate
 
@@ -27,7 +33,10 @@ def candidate(text: str, title: str | None = "Paper") -> Candidate:
 
 SOURCES = [
     candidate("Transformers rely on self-attention. They drop recurrence."),
-    candidate("The model was trained on 8 GPUs for 3 days.", title=None),
+    candidate(
+        "The model was trained on 8 GPUs for 3 days. They drop recurrence too.",
+        title=None,
+    ),
 ]
 
 
@@ -97,37 +106,75 @@ def test_near_misses_are_dropped(quote: str) -> None:
 
 @pytest.mark.parametrize("source", [0, -1, 3, 99])
 def test_out_of_range_source_is_dropped(source: int) -> None:
-    # "the" occurs in every source: only the source number can reject it (0 and -1
-    # must not wrap around to the last source, Python-style).
-    assert all("the" in normalise_for_match(c.text) for c in SOURCES)
-    assert verify_citations([RawCitation(source, "the")], SOURCES) == []
+    # The quote occurs in every source: only the source number can reject it (0
+    # and -1 must not wrap around to the last source, Python-style).
+    quote = "they drop recurrence"
+    assert all(quote in normalise_for_match(c.text) for c in SOURCES)
+    assert verify_citations([RawCitation(source, quote)], SOURCES) == []
 
 
 @pytest.mark.parametrize(
     "quote", ["", "   ", '""', "...", ELLIPSIS, " ' ", "on", ' "On" ']
 )
 def test_empty_quote_is_dropped(quote: str) -> None:
-    # Empty after stripping, or shorter than three characters: it proves nothing.
     assert verify_citations([RawCitation(1, quote)], SOURCES) == []
     assert verify_citations([RawCitation(2, quote)], SOURCES) == []
 
 
-def test_three_characters_is_enough() -> None:
-    assert verify_citations([RawCitation(2, "GPU")], SOURCES) != []
+LONG_WORD = "supercalifragilistic"  # 20 characters, one word
+MEANINGFUL = candidate(
+    f"Use the index and the cache: ab cd {LONG_WORD}. "
+    "This is retrieval augmented generation."
+)
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "the",
+        "and the",  # two words, 7 characters
+        "ab cd",  # two words, 5 characters
+        LONG_WORD,  # 20 characters, one word
+        f'"{LONG_WORD}..."',  # still one word once the edges are stripped
+    ],
+)
+def test_short_quotes_are_dropped(quote: str) -> None:
+    # Present in the chunk, yet they would verify against almost any text: a
+    # lazy model (or an injected instruction to cite "the") proves nothing.
+    assert quote.strip('".') in MEANINGFUL.text
+    assert verify_citations([RawCitation(1, quote)], [MEANINGFUL]) == []
+
+
+def test_meaningful_quote_is_kept() -> None:
+    raw = [RawCitation(1, "retrieval augmented generation")]
+    assert [c.quote for c in verify_citations(raw, [MEANINGFUL])] == [
+        "retrieval augmented generation"
+    ]
+
+
+def test_quote_length_boundary() -> None:
+    # Exactly MIN_QUOTE_WORDS words and MIN_QUOTE_CHARS characters: kept.
+    assert len("trained on") == MIN_QUOTE_CHARS
+    assert verify_citations([RawCitation(2, "trained on")], SOURCES) != []
+    # Two words, one character short: dropped.
+    assert verify_citations([RawCitation(2, "trained o")], SOURCES) == []
+    # Long enough, one word short.
+    assert verify_citations([RawCitation(1, "self-attention")], SOURCES) == []
+    assert MIN_QUOTE_WORDS == 2
 
 
 def test_duplicates_are_merged() -> None:
     raw = [
-        RawCitation(1, "self-attention"),
-        RawCitation(1, "  SELF-ATTENTION "),
-        RawCitation(2, "8 GPUs"),
-        RawCitation(1, "self-attention"),
+        RawCitation(1, "rely on self-attention"),
+        RawCitation(1, "  RELY ON  SELF-ATTENTION "),
+        RawCitation(2, "on 8 GPUs for"),
+        RawCitation(1, "rely on self-attention"),
         RawCitation(1, "drop recurrence"),
     ]
     kept = verify_citations(raw, SOURCES)
     assert [(c.source, c.quote) for c in kept] == [
-        (1, "self-attention"),
-        (2, "8 GPUs"),
+        (1, "rely on self-attention"),
+        (2, "on 8 GPUs for"),
         (1, "drop recurrence"),
     ]
 

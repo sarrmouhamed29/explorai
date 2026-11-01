@@ -53,10 +53,6 @@ def is_missing(exc: UnexpectedResponse) -> bool:
     return exc.status_code == 404
 
 
-def is_unavailable(exc: UnexpectedResponse) -> bool:
-    return (exc.status_code or 0) >= 500
-
-
 @dataclass(frozen=True)
 class IndexPoint:
     id: UUID
@@ -193,9 +189,16 @@ class QdrantIndex:
                 # an empty corpus, not an outage. No query text is logged.
                 logger.warning("vector store has no searchable collection")
                 return []
-            if is_unavailable(exc):
-                raise RetrievalUnavailable("vector store not ready") from exc
-            raise
+            # Any other answer (5xx, but also 400 "vector dimension error" while
+            # the alias still serves the collection of a previous embedding
+            # dimension, 401/403 for a wrong key, 429...) means the store cannot
+            # serve this search now: an outage for the caller (503), never a raw
+            # 500. Fixed message and no chained cause: the response body may echo
+            # request data, and nothing of it must reach logs or clients.
+            logger.warning(
+                "vector store rejected the search (HTTP %s)", exc.status_code
+            )
+            raise RetrievalUnavailable("vector store not ready") from None
         return [
             ScoredId(id=uuid.UUID(str(p.id)), score=p.score) for p in response.points
         ]
