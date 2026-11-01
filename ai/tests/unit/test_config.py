@@ -119,20 +119,41 @@ def test_non_finite_floats_are_rejected(
         RagSettings.from_env()
 
 
+def real_settings(**overrides: object) -> RagSettings:
+    values: dict[str, object] = {
+        "provider": "real",
+        "anthropic_api_key": "test-not-a-key",
+        "voyage_api_key": "test-not-a-key",
+    }
+    return RagSettings(**(values | overrides))  # type: ignore[arg-type]
+
+
 def test_index_name_is_the_collection_of_model_and_dimension() -> None:
-    settings = RagSettings(
+    settings = real_settings(embedding_model="voyage-4", embedding_dimension=512)
+    assert settings.index_model == "voyage-4"
+    assert settings.index_name == "chunks_voyage_4_512"
+
+
+def test_fake_provider_has_an_index_of_its_own() -> None:
+    # Fake vectors must never be served as if the real model had computed them:
+    # switching RAG_PROVIDER from fake to real has to start a new index.
+    fake = RagSettings(
         provider="fake", embedding_model="voyage-4", embedding_dimension=512
     )
-    assert settings.index_name == "chunks_voyage_4_512"
+    real = real_settings(embedding_model="voyage-4", embedding_dimension=512)
+    assert fake.index_model == "fake_voyage-4"
+    assert fake.index_name == "chunks_fake_voyage_4_512"
+    assert fake.index_name != real.index_name
 
 
 def test_index_name_must_fit_the_entries_column() -> None:
     column_type = ChunkIndexEntry.__table__.c.index_name.type
     assert isinstance(column_type, String)
     assert column_type.length == INDEX_NAME_MAX_LENGTH
-    # "chunks_" + model + "_" + dimension: find the longest model that fits.
+    # "chunks_fake_" + model + "_" + dimension (the fake provider's prefix is the
+    # longest form): find the longest model that fits.
     dimension = 4096
-    room = INDEX_NAME_MAX_LENGTH - len(f"chunks__{dimension}")
+    room = INDEX_NAME_MAX_LENGTH - len(f"chunks_fake__{dimension}")
     fits = RagSettings(
         provider="fake", embedding_model="m" * room, embedding_dimension=dimension
     )

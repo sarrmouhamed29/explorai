@@ -95,7 +95,7 @@ def settings(tmp_path: Path, database_url: str, test_redis_url: str) -> Settings
 def rag_settings() -> RagSettings:
     """Fake models, and an embedding model name of its own for each test.
 
-    The index name (``chunks_<model>_<dimension>``) keys both the Qdrant
+    The index name (``chunks_fake_<model>_<dimension>``) keys both the Qdrant
     collection and the ``chunk_index_entries`` rows, so tests never share one.
     """
     return RagSettings(

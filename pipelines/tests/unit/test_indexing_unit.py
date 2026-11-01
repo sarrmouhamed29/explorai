@@ -26,8 +26,9 @@ from explorai_pipelines.indexing import (
 from explorai_pipelines.repository import PendingChunk, VersionToChunk
 
 DIM = 8
-A = "chunks_model_a_8"
-B = "chunks_model_b_8"
+# The fake provider has an index name of its own (``fake_`` prefix).
+A = "chunks_fake_model_a_8"
+B = "chunks_fake_model_b_8"
 WORDS = "dense and sparse retrieval complement each other in practice"
 
 
@@ -171,6 +172,27 @@ def repo() -> FakeRepo:
 @pytest.fixture
 def index() -> FakeIndex:
     return FakeIndex()
+
+
+@pytest.mark.parametrize("provider", ["fake", "real"])
+def test_the_collection_and_the_entries_use_the_settings_index_name(
+    repo: FakeRepo, index: FakeIndex, provider: str
+) -> None:
+    ids = repo.add_chunks(2)
+    settings = rag_settings(
+        provider=provider,
+        anthropic_api_key="test-not-a-key",
+        voyage_api_key="test-not-a-key",
+    )
+
+    index_pending(repo, RecordingEmbedder(), index, settings)
+
+    # One definition of the name for the vectors, the entries and the alias.
+    assert set(index.collections) == {settings.index_name}
+    assert index.alias == settings.index_name
+    assert {(i, settings.index_name) for i in ids} == repo.entries
+    if provider == "fake":
+        assert settings.index_name == A
 
 
 def test_provider_outage_stops_the_pass_and_keeps_chunks_pending(
@@ -508,7 +530,7 @@ def test_dimension_change_is_a_new_index_with_every_chunk_pending(
     ids = repo.add_chunks(3)
     index_pending(repo, RecordingEmbedder(), index, rag_settings())
     wider = rag_settings(embedding_dimension=16, embed_batch_size=1)
-    new = "chunks_model_a_16"
+    new = "chunks_fake_model_a_16"
 
     stopped = index_pending(
         repo, RecordingEmbedder(fail_from_call=2, dimension=16), index, wider

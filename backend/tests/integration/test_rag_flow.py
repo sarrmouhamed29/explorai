@@ -294,8 +294,9 @@ def test_empty_corpus_gives_insufficient_evidence_not_500(
 
     # 2. The alias points at a collection with no point.
     collection = qdrant_index.ensure_collection(
-        rag_settings.embedding_model, rag_settings.embedding_dimension
+        rag_settings.index_model, rag_settings.embedding_dimension
     )
+    assert collection == rag_settings.index_name
     qdrant_index.switch_alias(collection)
     assert list(qdrant_index.point_ids(collection)) == []
     assert_refused(ALICE_QUESTION)

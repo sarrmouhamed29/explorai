@@ -152,7 +152,7 @@ def index_pending(
         "embedding_failed": 0,
         "reset_entries": 0,
     }
-    model = settings.embedding_model
+    model = settings.index_model
     name = settings.index_name
     if embedder.dimension != settings.embedding_dimension:
         raise ValueError("embedder dimension does not match RAG_EMBEDDING_DIMENSION")
@@ -169,8 +169,11 @@ def index_pending(
                     name,
                     counters["reset_entries"],
                 )
-        # Same name: both come from QdrantIndex.collection_name.
+        # Same name: both come from QdrantIndex.collection_name over index_model
+        # (the fake provider's index is distinct from the real model's).
         collection = index.ensure_collection(model, settings.embedding_dimension)
+        if collection != name:
+            raise RuntimeError("collection name differs from settings.index_name")
         done: set[uuid.UUID] = set()
         while batch := repo.pending_chunks(name, settings.embed_batch_size):
             if any(chunk.chunk_id in done for chunk in batch):

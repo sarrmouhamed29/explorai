@@ -64,11 +64,26 @@ class RagSettings(BaseSettings):
         return self
 
     @property
+    def index_model(self) -> str:
+        """The model key of the vector index: the embedding model actually used.
+
+        The fake embedder is not the configured model, so its vectors get an
+        index of their own (``fake_`` prefix): switching ``RAG_PROVIDER`` from
+        ``fake`` to ``real`` then starts a new index instead of serving hashed
+        vectors as if the real model had computed them.
+        """
+        if self.provider == "fake":
+            return f"fake_{self.embedding_model}"
+        return self.embedding_model
+
+    @property
     def index_name(self) -> str:
-        """The vector index of these settings (collection and entries name)."""
-        return QdrantIndex.collection_name(
-            self.embedding_model, self.embedding_dimension
-        )
+        """The vector index of these settings: Qdrant collection and entries name.
+
+        The only definition, used by the indexing pipeline (collection, entries,
+        alias) and by the API (the collection it searches, the indexed flag).
+        """
+        return QdrantIndex.collection_name(self.index_model, self.embedding_dimension)
 
     @model_validator(mode="after")
     def _real_provider_needs_keys(self) -> Self:

@@ -266,7 +266,7 @@ def test_new_version_is_chunked_embedded_and_indexed(
         "embedding_failed": 0,
         "reset_entries": 0,
     }
-    collection = index.collection_name(settings.embedding_model, DIM)
+    collection = settings.index_name
     public_chunks = chunk_ids_of(session_factory, public)
     private_chunks = chunk_ids_of(session_factory, private)
     assert len(public_chunks) == 2
@@ -304,7 +304,7 @@ def test_second_pass_changes_nothing(
     version = corpus.version(corpus.document(), at(0), [RETRIEVAL, RERANKING])
     settings = rag_settings(fresh_model())
     index_pending(repo, embedder, index, settings)
-    collection = index.collection_name(settings.embedding_model, DIM)
+    collection = settings.index_name
     chunks, indexed = chunk_ids_of(session_factory, version), points(index, collection)
 
     counters = index_pending(repo, embedder, index, settings)
@@ -368,7 +368,7 @@ def test_duplicate_version_is_not_indexed(
     assert chunk_ids_of(session_factory, copy) == set()
     with session_factory() as session:
         assert session.get(DocumentVersion, copy).chunked_at is None  # type: ignore[union-attr]
-    collection = index.collection_name(settings.embedding_model, DIM)
+    collection = settings.index_name
     assert points(index, collection) == chunk_ids_of(session_factory, original)
 
 
@@ -426,7 +426,7 @@ def test_prune_removes_points_of_stale_versions_and_deleted_documents(
         session.execute(
             text("DELETE FROM documents WHERE id = :id"), {"id": deleted_doc}
         )
-    collection = index.collection_name(settings.embedding_model, DIM)
+    collection = settings.index_name
     assert stale <= points(index, collection)
 
     counters = prune_index(repo, index, settings)
@@ -447,12 +447,12 @@ def test_model_change_builds_a_new_collection_and_switches_the_alias_only_when_c
         corpus.version(corpus.document(), at(0), [body])
     old_settings = rag_settings(fresh_model())
     index_pending(repo, embedder, index, old_settings)
-    old_collection = index.collection_name(old_settings.embedding_model, DIM)
+    old_collection = old_settings.index_name
     everything = points(index, old_collection)
     assert len(everything) == 3
 
     new_settings = rag_settings(fresh_model(), embed_batch_size=1)
-    new_collection = index.collection_name(new_settings.embedding_model, DIM)
+    new_collection = new_settings.index_name
     stopped = index_pending(repo, FailingEmbedder(fail_from=2), index, new_settings)
 
     assert stopped["embedded"] == 1
@@ -481,7 +481,7 @@ def test_embedding_failure_midway_resumes_next_pass(
     for body in (RETRIEVAL, RERANKING, CHUNKING):
         corpus.version(corpus.document(), at(0), [body])
     settings = rag_settings(fresh_model(), embed_batch_size=1)
-    collection = index.collection_name(settings.embedding_model, DIM)
+    collection = settings.index_name
 
     first = index_pending(repo, FailingEmbedder(fail_from=2), index, settings)
 

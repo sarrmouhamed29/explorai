@@ -44,7 +44,7 @@ Environment variables only, validated when first read (the backend reads them at
 | `VOYAGE_API_KEY` | none | required and non-blank with `real` |
 | `QDRANT_URL` | `http://127.0.0.1:6333` | Qdrant base URL |
 | `QDRANT_API_KEY` | none | Qdrant API key (the Compose service requires one) |
-| `RAG_EMBEDDING_MODEL`, `RAG_EMBEDDING_DIMENSION` | `voyage-4`, `1024` | together they name the index (`chunks_<model>_<dimension>`) |
+| `RAG_EMBEDDING_MODEL`, `RAG_EMBEDDING_DIMENSION` | `voyage-4`, `1024` | together they name the index (`chunks_<model>_<dimension>`; with `RAG_PROVIDER=fake` the model part is `fake_<model>`, so fake vectors never share an index with the real model's) |
 | `RAG_RERANK_MODEL` | `rerank-2.5` | Voyage reranker |
 | `RAG_GENERATION_MODEL`, `RAG_REWRITE_MODEL` | `claude-sonnet-5-5`, `claude-haiku-5-5` | answer and query-rewriting models |
 | `RAG_REWRITE_ENABLED`, `RAG_RERANK_ENABLED` | `true`, `true` | switch the optional stages off (for measurement) |
