@@ -1,8 +1,12 @@
 """Plain value objects shared by the RAG logic and the provider adapters."""
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
+
+if TYPE_CHECKING:
+    # citations imports this module; the annotation below is never evaluated.
+    from explorai_ai.citations import Citation
 
 
 @dataclass(frozen=True)
@@ -43,3 +47,17 @@ class GeneratedAnswer:
 class ScoredId:
     id: UUID
     score: float
+
+
+@dataclass(frozen=True)
+class AnswerResult:
+    """What ``AnswerPipeline.ask`` returns: an answer, or an explicit refusal.
+
+    ``insufficient_evidence`` always has ``answer=None`` and no citations; an
+    ``answered`` result always has at least one verified citation.
+    """
+
+    status: Literal["answered", "insufficient_evidence"]
+    answer: str | None
+    citations: list["Citation"]
+    usage: Usage

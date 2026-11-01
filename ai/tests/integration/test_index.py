@@ -1,6 +1,5 @@
 """QdrantIndex against a real Qdrant (QDRANT_URL / QDRANT_API_KEY)."""
 
-import os
 import uuid
 from collections.abc import Iterator
 
@@ -16,16 +15,6 @@ from explorai_ai.sparse import encode_document, encode_query
 pytestmark = pytest.mark.integration
 
 DIM = 4
-
-
-@pytest.fixture
-def client() -> Iterator[QdrantClient]:
-    url = os.environ.get("QDRANT_URL")
-    if not url:
-        pytest.fail("QDRANT_URL must be set for integration tests")
-    qdrant = QdrantClient(url=url, api_key=os.environ.get("QDRANT_API_KEY"))
-    yield qdrant
-    qdrant.close()
 
 
 @pytest.fixture
