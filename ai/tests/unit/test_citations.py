@@ -1,3 +1,4 @@
+import time
 import uuid
 
 import pytest
@@ -211,3 +212,32 @@ def test_markers_without_a_verified_citation_are_removed(
     answer: str, kept: set[int], expected: str
 ) -> None:
     assert strip_unverified_markers(answer, kept) == expected
+
+
+def test_a_paragraph_break_before_a_dropped_marker_survives() -> None:
+    # Only spaces and tabs go with a removed marker, never line breaks.
+    assert strip_unverified_markers("A [1]\n\n[2] B", {1}) == "A [1]\n\n B"
+
+
+def test_a_huge_bracketed_number_is_not_a_marker() -> None:
+    # Sources are numbered 1..8: a long digit run is text, never parsed (int()
+    # refuses more than 4300 digits, which would be a 500).
+    answer = "See [" + "9" * 5000 + "] and A [1]."
+    assert strip_unverified_markers(answer, {1}) == answer
+
+
+def test_year_like_brackets_are_left_alone() -> None:
+    assert strip_unverified_markers("Since [2019], A [1].", {1}) == (
+        "Since [2019], A [1]."
+    )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [" " * 20000 + "x", "\n" * 5000 + "x", "[1] " * 20000, " [2]" * 20000],
+)
+def test_marker_stripping_is_linear(answer: str) -> None:
+    # A regex that rescans whitespace runs is quadratic: 20000 spaces took 8 s.
+    started = time.perf_counter()
+    strip_unverified_markers(answer, {1})
+    assert time.perf_counter() - started < 0.5

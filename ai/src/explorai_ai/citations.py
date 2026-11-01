@@ -60,9 +60,13 @@ def _strip_edges(text: str) -> str:
 
 # Source markers as the prompt asks for them: [1], adjacent ones such as [2][3],
 # or a comma list such as [1, 2]; a run of adjacent markers is one match, with
-# the whitespace before it. Only digits: "[sic]" is not a marker.
-_ONE_MARKER = r"\[\d+(?:\s*,\s*\d+)*\]"
-_MARKERS = re.compile(rf"(\s*)((?:{_ONE_MARKER})+)")
+# the spaces and tabs before it (never a line break, so paragraphs survive).
+# At most 3 digits per number: sources are numbered 1..8, so "[2019]" or a huge
+# digit run is text, and int() never sees more than 3 digits. "[sic]" is not a
+# marker. The lookbehind starts a match only at the first blank of a run, so a
+# long run of spaces is scanned once, not once per position (linear time).
+_ONE_MARKER = r"\[\d{1,3}(?:[ \t]*,[ \t]*\d{1,3})*\]"
+_MARKERS = re.compile(rf"(?<![ \t])([ \t]*)((?:{_ONE_MARKER})+)")
 _NUMBERS = re.compile(r"\[([^\]]*)\]")
 
 
