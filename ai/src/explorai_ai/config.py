@@ -1,0 +1,72 @@
+"""RAG settings: read from the environment, fail fast, never echo a secret."""
+
+from functools import lru_cache
+from typing import Any, Literal, Self
+
+from pydantic import AliasChoices, Field, SecretStr, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class RagSettings(BaseSettings):
+    # Validation errors name the field but never echo its value (API keys).
+    # Own settings use the RAG_ prefix; provider credentials keep their usual names.
+    model_config = SettingsConfigDict(
+        hide_input_in_errors=True, env_prefix="RAG_", populate_by_name=True
+    )
+
+    provider: Literal["real", "fake"]
+    anthropic_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY")
+    )
+    voyage_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("VOYAGE_API_KEY")
+    )
+    qdrant_url: str = Field(
+        default="http://127.0.0.1:6333", validation_alias=AliasChoices("QDRANT_URL")
+    )
+    qdrant_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("QDRANT_API_KEY")
+    )
+    # Placeholders until the real provider models are verified (plan, Task 5).
+    embedding_model: str = "fake-embedding"
+    embedding_dimension: int = Field(default=64, gt=0)
+    rerank_model: str = "fake-rerank"
+    generation_model: str = "claude-sonnet-5-5"
+    rewrite_model: str = "claude-haiku-5-5"
+    rewrite_enabled: bool = True
+    rerank_enabled: bool = True
+    dense_candidates: int = Field(default=50, gt=0)
+    sparse_candidates: int = Field(default=50, gt=0)
+    fused_candidates: int = Field(default=30, gt=0)
+    final_candidates: int = Field(default=8, gt=0)
+    refusal_threshold: float = Field(default=0.2, gt=0, allow_inf_nan=False)
+    chunk_words: int = Field(default=400, gt=0)
+    chunk_overlap_words: int = Field(default=60, gt=0)
+    max_chunks_per_document: int = Field(default=500, gt=0)
+    embed_batch_size: int = Field(default=64, gt=0)
+    provider_timeout_seconds: float = Field(default=20.0, gt=0, allow_inf_nan=False)
+    ask_max_per_hour: int = Field(default=30, gt=0)
+    question_max_chars: int = Field(default=2000, gt=0)
+
+    @model_validator(mode="after")
+    def _real_provider_needs_keys(self) -> Self:
+        if self.provider == "real":
+            missing = [
+                name
+                for name in ("anthropic_api_key", "voyage_api_key")
+                if getattr(self, name) is None
+            ]
+            if missing:
+                raise ValueError("provider 'real' requires: " + ", ".join(missing))
+        return self
+
+    @classmethod
+    def from_env(cls) -> "RagSettings":
+        """Build settings purely from the environment (see backend Settings)."""
+        no_explicit_values: dict[str, Any] = {}
+        return cls(**no_explicit_values)
+
+
+@lru_cache
+def get_rag_settings() -> RagSettings:
+    return RagSettings.from_env()

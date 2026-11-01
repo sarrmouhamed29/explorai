@@ -8,6 +8,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY backend/ backend/
 COPY db/ db/
+COPY ai/ ai/
 COPY pipelines/ pipelines/
 RUN uv sync --frozen --package explorai-backend --no-dev --no-editable
 

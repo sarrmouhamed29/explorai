@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["backend", "db", "pipelines"]
+members = ["backend", "db", "pipelines", "ai"]
 
 [tool.uv]
 # Prefect 3.8.x does not work with the newest releases of two of its dependencies; keep
