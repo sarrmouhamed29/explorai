@@ -49,7 +49,8 @@ jobs:
       APP_ENV: test
       DATABASE_URL: postgresql://explorai:ci-only-not-a-secret@127.0.0.1:5432/explorai
       REDIS_URL: redis://127.0.0.1:6379/0
-      BLOB_DIR: ${{ runner.temp }}/blobs
+      # The runner context is not available in job-level env (it made the whole workflow invalid).
+      BLOB_DIR: /tmp/explorai-blobs
       ALLOWED_ORIGINS: http://127.0.0.1:5173
       SESSION_COOKIE_SECURE: "false"
     steps:
