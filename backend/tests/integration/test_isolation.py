@@ -49,6 +49,7 @@ class World:
     client_b: TestClient
     user_a: uuid.UUID
     user_b: uuid.UUID
+    doc_a: uuid.UUID
     doc_b: uuid.UUID
     doc_public: uuid.UUID
 
@@ -79,13 +80,16 @@ def world(
     client_b = TestClient(app, base_url="https://testserver")
     user_a = login_as(client_a, "alice@example.org")
     user_b = login_as(client_b, "bob@example.org")
+    doc_a = add_document(
+        session_factory, user_a, title="alice", created_at=BASE, status="ok", sections=1
+    )
     doc_b = add_document(
         session_factory, user_b, title="bob", created_at=BASE, status="ok", sections=2
     )
     doc_public = add_document(
         session_factory, None, title="public", created_at=BASE, status="ok", sections=1
     )
-    return World(app, client_a, client_b, user_a, user_b, doc_b, doc_public)
+    return World(app, client_a, client_b, user_a, user_b, doc_a, doc_b, doc_public)
 
 
 def test_every_document_route_hides_foreign_documents(
@@ -115,6 +119,13 @@ def test_every_document_route_hides_foreign_documents(
                         break
                 assert cursor is None, f"scope={scope} did not terminate"
                 assert str(world.doc_b) not in seen, scope
+                mine, public = str(world.doc_a), str(world.doc_public)
+                expected = {
+                    "mine": {mine},
+                    "public": {public},
+                    "all": {mine, public},
+                }[scope]
+                assert set(seen) == expected, (scope, seen)
             swept += 1
     # GET document, DELETE document, GET sections, GET list.
     assert swept == 4
@@ -161,6 +172,7 @@ def test_rls_holds_even_without_the_repository_filter(
     with scoped_session(session_factory, world.user_a) as session:
         visible = {row[0] for row in session.execute(text("SELECT id FROM documents"))}
     assert world.doc_b not in visible
+    assert world.doc_a in visible  # A's own private row stays visible
     assert world.doc_public in visible  # the public corpus stays readable
 
 
