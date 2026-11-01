@@ -90,7 +90,7 @@ The real run needs the keys, `DATABASE_URL` and a populated public index, costs 
 
 ## Known limits
 
-- The quote returned is the model's text, matched after NFKC and case folding, not the source's exact span; the check proves the quote is in the chunk, not that it supports the claim; `[n]` markers in the answer are not rewritten when citations are dropped (ADR 0013).
+- The quote returned is the model's text, matched after NFKC and case folding, not the source's exact span; the check proves the quote is in the chunk, not that it supports the claim; when citations are dropped, the `[n]` markers of sources left without a verified citation are removed from the answer text, but the claims they followed stay (ADR 0013).
 - The quote floor counts whitespace-separated words, so a CJK quote without spaces never verifies. Short quotes ("42%") are refused.
 - The sparse tokenizer drops every combining mark (over-folding Japanese dakuten, Thai and Indic signs) and makes a CJK run one token; folding depends on the Python `unicodedata` version; tokens are hashed to 32 bits (rare collisions); there is no BM25 length normalisation.
 - The fakes tokenise ASCII only (they exist for tests, not for quality).

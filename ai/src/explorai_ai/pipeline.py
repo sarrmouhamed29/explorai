@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
-from explorai_ai.citations import verify_citations
+from explorai_ai.citations import strip_unverified_markers, verify_citations
 from explorai_ai.config import RagSettings
 from explorai_ai.errors import GenerationFailed, ProviderError, ProviderUnavailable
 from explorai_ai.models import AnswerResult, PromptSource, Usage
@@ -137,5 +137,10 @@ class AnswerPipeline:
         if not citations:
             trace = _Trace("no_verified_citation", len(sources), raw)
             return _refusal(generated.usage), trace
-        answer = AnswerResult("answered", generated.answer, citations, generated.usage)
+        # Markers of sources whose citations were all dropped would point at
+        # evidence the client never gets: remove them from the text.
+        text = strip_unverified_markers(
+            generated.answer, {citation.source for citation in citations}
+        )
+        answer = AnswerResult("answered", text, citations, generated.usage)
         return answer, _Trace("answered", len(sources), raw)

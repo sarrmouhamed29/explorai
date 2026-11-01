@@ -92,7 +92,7 @@ Run on the maintainer's machine: the unit suites of the four Python packages, `r
 
 ## Limits, honestly
 
-- The quote shown is the model's text, matched after NFKC and case folding, not the source's exact span; the check proves the quote exists, not that it supports the claim; `[n]` markers in the answer text are not rewritten when citations are dropped (ADR 0013).
+- The quote shown is the model's text, matched after NFKC and case folding, not the source's exact span; the check proves the quote exists, not that it supports the claim; when citations are dropped, the markers of sources left without a verified citation are removed from the answer text, while the claims they followed stay (ADR 0013).
 - The quote floor counts whitespace-separated words, so CJK quotes without spaces are always refused; the sparse tokenizer drops every combining mark (over-folding some scripts) and treats a CJK run as one token (ADR 0011).
 - Private chunk text and questions are sent to Voyage and Anthropic (ADR 0014).
 - Sparse IDF is probably computed over the whole collection, all tenants together (not verified against Qdrant); no text crosses, but rankings are not independent of other users' documents.

@@ -17,7 +17,7 @@ The model must answer through a forced tool call (`answer_question`, see ADR [00
 4. **The normalised quote must be a substring of the normalised chunk text.** No fuzzy matching: a dropped hyphen, an added word or an inner "..." stitching two passages fails.
 5. Repeats of the same (source, quote) are kept once.
 
-A failing citation is removed. **If the model said `answered` and no citation survives, the answer becomes a refusal** (`insufficient_evidence`, the third refusal level). The quote returned to the client is the model's own text with whitespace collapsed and edge marks stripped.
+A failing citation is removed. **If the model said `answered` and no citation survives, the answer becomes a refusal** (`insufficient_evidence`, the third refusal level). When some survive, the `[n]` markers of every source left without a verified citation are removed from the answer text (`citations.strip_unverified_markers`, with the space before them; in `[1, 2]` only the unverified number goes), so no marker points at evidence the client does not receive; the claim it followed stays in the text. The quote returned to the client is the model's own text with whitespace collapsed and edge marks stripped.
 
 ## What the check proves, and what it does not
 
@@ -26,7 +26,7 @@ It proves that **each returned quote occurs, up to case, whitespace and Unicode 
 It does **not** prove:
 
 - **That the answer is supported.** The check looks at quotes, not claims. A real quote can be attached to a claim it does not support, or to a wrong conclusion. Judging entailment needs an evaluator (an LLM judge or a natural-language-inference model), which is sub-project 4.
-- **That the `[n]` markers in the answer text match the surviving citations.** The answer text is returned as the model wrote it; when some citations are dropped and others survive, a marker in the text can point at a citation that was removed.
+- **That every claim in the text is still cited.** Removing the marker of a dropped citation leaves its claim in the answer without a marker; the reader can see it is uncited, but the claim itself is not removed (sentence-level surgery would need to understand the text). A bracketed number the model wrote that is not a source marker (a year such as [2019]) is treated as a marker and removed unless it names a source with a verified citation.
 - **That the quote shown is the source's exact span.** It is the model's text, matched after normalisation, so its case, ligatures or compatibility characters may differ from the stored text. For example, a chunk extracted with the ligature `ﬁ` (U+FB01) in "ﬁne-tuning" matches the model's "Fine-tuning", and the client sees the model's spelling; a superscript `10⁻³` becomes `10−3` under NFKC (with U+2212, the minus sign), so it matches a quote written with that minus sign but not one written with an ASCII hyphen. A client that highlights the quote in the source must search with the same normalisation.
 - **That short quotes are meaningful.** Two words and ten characters ("of the model") still occur in many chunks. The floor stops the trivial cases, not every weak citation.
 

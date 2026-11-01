@@ -7,6 +7,7 @@ from explorai_ai.citations import (
     MIN_QUOTE_WORDS,
     Citation,
     normalise_for_match,
+    strip_unverified_markers,
     verify_citations,
 )
 from explorai_ai.models import RawCitation
@@ -187,3 +188,26 @@ def test_normalise_for_match() -> None:
     assert normalise_for_match("  A\tB" + NBSP + "\nc  ") == "a b c"
     assert normalise_for_match("Stra" + chr(0x00DF) + "e") == "strasse"
     assert normalise_for_match(LIGATURE_FI) == "fi"
+
+
+@pytest.mark.parametrize(
+    ("answer", "kept", "expected"),
+    [
+        # A marker whose citation survived stays; one whose citation was dropped
+        # goes, with the space before it, so no dangling "[2]" points nowhere.
+        ("A uses B [1] and C [2].", {1}, "A uses B [1] and C."),
+        ("A [2]. B [1].", {1}, "A. B [1]."),
+        ("A [1][2].", {1}, "A [1]."),
+        ("A [2][1].", {1}, "A [1]."),
+        ("A [1, 2].", {2}, "A [2]."),
+        ("A [1, 3, 2].", {1, 2}, "A [1, 2]."),
+        ("[3] A [1].", {1}, "A [1]."),
+        ("A [1] B [2]", {1, 2}, "A [1] B [2]"),
+        # Brackets that are not source numbers are left alone.
+        ("A [sic] B [1].", {1}, "A [sic] B [1]."),
+    ],
+)
+def test_markers_without_a_verified_citation_are_removed(
+    answer: str, kept: set[int], expected: str
+) -> None:
+    assert strip_unverified_markers(answer, kept) == expected

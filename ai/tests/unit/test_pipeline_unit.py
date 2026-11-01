@@ -311,3 +311,27 @@ def test_nothing_of_the_question_or_texts_is_logged(
     logged = " ".join(r.getMessage() for r in caplog.records)
     assert secret not in logged
     assert "self-attention" not in logged
+
+
+def test_markers_of_dropped_citations_are_removed_from_the_answer() -> None:
+    first = candidate("The transformer relies on self-attention.")
+    second = candidate("Recurrence is dropped entirely by the model.")
+    generator = RecordingGenerator(
+        GeneratedAnswer(
+            "answered",
+            "It relies on self-attention [1] and drops recurrence [2].",
+            [
+                RawCitation(1, "relies on self-attention"),
+                RawCitation(2, "an invented quote"),  # dropped by verification
+            ],
+            USAGE,
+        )
+    )
+    ask, _ = pipeline(RetrievalResult([first, second], 0.9), generator)
+
+    result = ask.ask(USER, QUESTION)
+
+    assert result.status == "answered"
+    assert [c.source for c in result.citations] == [1]
+    # No marker in the text points at a citation the client does not receive.
+    assert result.answer == "It relies on self-attention [1] and drops recurrence."

@@ -58,6 +58,36 @@ def _strip_edges(text: str) -> str:
     return _EDGE.sub("", text)
 
 
+# Source markers as the prompt asks for them: [1], adjacent ones such as [2][3],
+# or a comma list such as [1, 2]; a run of adjacent markers is one match, with
+# the whitespace before it. Only digits: "[sic]" is not a marker.
+_ONE_MARKER = r"\[\d+(?:\s*,\s*\d+)*\]"
+_MARKERS = re.compile(rf"(\s*)((?:{_ONE_MARKER})+)")
+_NUMBERS = re.compile(r"\[([^\]]*)\]")
+
+
+def strip_unverified_markers(answer: str, kept_sources: set[int]) -> str:
+    """``answer`` without the ``[n]`` markers of sources with no verified citation.
+
+    A marker whose source number has no surviving citation would point the
+    reader at evidence the client never receives, so it is removed together with
+    the whitespace before it; in a list, only the unverified numbers go. The
+    claim it followed stays: the answer as a whole is still backed by at least
+    one verified citation (otherwise the pipeline refuses).
+    """
+
+    def keep(match: re.Match[str]) -> str:
+        brackets = []
+        for listed in _NUMBERS.findall(match.group(2)):
+            numbers = [n.strip() for n in listed.split(",")]
+            survivors = [n for n in numbers if int(n) in kept_sources]
+            if survivors:
+                brackets.append(f"[{', '.join(survivors)}]")
+        return match.group(1) + "".join(brackets) if brackets else ""
+
+    return _MARKERS.sub(keep, answer).strip()
+
+
 def verify_citations(
     raw: Sequence[RawCitation], candidates: Sequence["Candidate"]
 ) -> list[Citation]:
