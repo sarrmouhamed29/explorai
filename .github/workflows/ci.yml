@@ -45,8 +45,17 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:v1.20.0
+        env:
+          QDRANT__SERVICE__API_KEY: ci-only-not-a-secret
+        ports:
+          - 6333:6333
     env:
       APP_ENV: test
+      QDRANT_URL: http://127.0.0.1:6333
+      QDRANT_API_KEY: ci-only-not-a-secret
+      RAG_PROVIDER: fake
       DATABASE_URL: postgresql://explorai:ci-only-not-a-secret@127.0.0.1:5432/explorai
       REDIS_URL: redis://127.0.0.1:6379/0
       # The runner context is not available in job-level env (it made the whole workflow invalid).
@@ -64,17 +73,29 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen
-      - run: uv run ruff check backend db pipelines
-      - run: uv run ruff format --check backend db pipelines
+      - run: uv run ruff check backend db pipelines ai
+      - run: uv run ruff format --check backend db pipelines ai
       # mypy picks no config from a package when run from the root: pass each one.
       - run: uv run mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
       - run: uv run mypy --config-file db/pyproject.toml db/src db/tests
       - run: uv run mypy --config-file pipelines/pyproject.toml pipelines/src pipelines/tests
+      - run: uv run mypy --config-file ai/pyproject.toml ai/src ai/tests
+      # The Qdrant service container has no health command (the image has no curl):
+      # wait until its port accepts connections before the integration tests.
+      - name: Wait for Qdrant
+        run: |
+          for _ in $(seq 1 30); do
+            (: > /dev/tcp/127.0.0.1/6333) 2>/dev/null && exit 0
+            sleep 2
+          done
+          echo "Qdrant did not start" >&2
+          exit 1
       # One pytest call per package: each has its own config and 80% coverage gate,
-      # and the integration tests of all three use the PostgreSQL service above.
+      # and the integration tests use the PostgreSQL and Qdrant services above.
       - run: uv run pytest backend/tests
       - run: uv run pytest db/tests
       - run: uv run pytest pipelines/tests
+      - run: uv run pytest ai/tests
 
   frontend:
     name: frontend

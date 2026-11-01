@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Literal
+from uuid import UUID
 
 
 @dataclass(frozen=True)
@@ -36,3 +37,9 @@ class GeneratedAnswer:
     answer: str
     citations: list[RawCitation]
     usage: Usage
+
+
+@dataclass(frozen=True)
+class ScoredId:
+    id: UUID
+    score: float

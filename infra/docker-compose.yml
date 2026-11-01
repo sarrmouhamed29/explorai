@@ -29,6 +29,23 @@ services:
       timeout: 3s
       retries: 10
 
+  # Vector store for the RAG index. The official image has no curl or wget but has bash,
+  # so the health check opens a TCP connection to the port with bash's /dev/tcp.
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?set QDRANT_API_KEY in infra/.env}
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", ":> /dev/tcp/127.0.0.1/6333"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   backend:
     build:
       context: ..
@@ -131,3 +148,4 @@ services:
 volumes:
   blobs:
   prefect-data:
+  qdrant-data:
