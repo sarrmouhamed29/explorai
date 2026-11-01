@@ -1,7 +1,8 @@
 """Identity-scoped sessions for Row-Level Security.
 
 Migration 0003 enables RLS on ``documents``, ``raw_artifacts``,
-``document_versions`` and ``sections`` with policies for the ``explorai_app``
+``document_versions`` and ``sections`` (0005 adds ``chunks`` and
+``chunk_index_entries``, read-only) with policies for the ``explorai_app``
 role, keyed on ``app_user()`` (the ``app.user_id`` setting). The table owner
 bypasses them (RLS is enabled without ``FORCE``) so the pipeline can ingest for
 everyone; the API must therefore never query as the owner, only through

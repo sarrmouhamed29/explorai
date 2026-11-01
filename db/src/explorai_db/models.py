@@ -5,8 +5,8 @@ public corpus, a value is a private document. Uniqueness that involves it uses
 ``NULLS NOT DISTINCT`` so that public rows (owner ``NULL``) are still unique.
 
 Row-Level Security policies, the ``explorai_app`` role and the ``app_user()``
-function live in migration 0003 only: they are server-side objects that the
-models cannot express (see ``explorai_db.rls``).
+function live in migrations 0003 and 0005 only: they are server-side objects
+that the models cannot express (see ``explorai_db.rls``).
 """
 
 import uuid
@@ -138,6 +138,12 @@ class DocumentVersion(Base):
         ForeignKey("document_versions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Set by the indexing pipeline once the version has been cut into chunks, even
+    # when that produced none: without it, a version with zero chunks would look
+    # "not chunked yet" forever and be chunked again on every pass.
+    chunked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class Section(Base):
@@ -151,6 +157,45 @@ class Section(Base):
     ordinal: Mapped[int] = mapped_column(Integer)
     heading: Mapped[str | None] = mapped_column(Text, nullable=True)
     text: Mapped[str] = mapped_column(Text)
+
+
+class Chunk(Base):
+    """A retrieval unit cut from the sections of one version.
+
+    Derived data: it can always be rebuilt from ``sections``. The vectors live in
+    Qdrant under the chunk id; the text is only here, so every answer re-reads it
+    under Row-Level Security (migration 0005).
+    """
+
+    __tablename__ = "chunks"
+    __table_args__ = (UniqueConstraint("version_id", "ordinal"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE")
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    heading: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text: Mapped[str] = mapped_column(Text)
+    word_count: Mapped[int] = mapped_column(Integer)
+    text_hash: Mapped[str] = mapped_column(String(64))
+
+
+class ChunkIndexEntry(Base):
+    """A chunk is in the vector index for ``embedding_model``.
+
+    A chunk without an entry for the current model is pending. Changing the model
+    leaves the old entries in place, so the new collection can be filled in the
+    background while the old one keeps serving.
+    """
+
+    __tablename__ = "chunk_index_entries"
+
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
+    )
+    embedding_model: Mapped[str] = mapped_column(String(128), primary_key=True)
+    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class IngestionRun(Base):

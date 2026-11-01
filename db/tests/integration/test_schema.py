@@ -29,6 +29,8 @@ EXPECTED_TABLES = {
     "sections",
     "ingestion_runs",
     "users",
+    "chunks",
+    "chunk_index_entries",
 }
 
 
