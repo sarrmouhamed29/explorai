@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
+from explorai_db.blobs import BlobStore
 from explorai_pipelines.clean import normalize
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.dedup import NearDuplicateIndex, minhash_signature, text_hash
@@ -26,7 +27,6 @@ from explorai_pipelines.extract.pdf import PDF_EXTRACTOR_VERSION, extract_pdf_is
 from explorai_pipelines.netsafe import FetchResult
 from explorai_pipelines.repository import Repository
 from explorai_pipelines.sources.base import SourceItem
-from explorai_pipelines.storage import BlobStore
 
 logger = logging.getLogger(__name__)
 

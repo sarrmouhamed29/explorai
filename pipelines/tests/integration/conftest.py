@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
+from explorai_db.blobs import LocalBlobStore
 from explorai_db.session import make_engine, make_session_factory
 from explorai_db.testing import temporary_database
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.repository import Repository
-from explorai_pipelines.storage import LocalBlobStore
 
 
 @pytest.fixture(scope="session")

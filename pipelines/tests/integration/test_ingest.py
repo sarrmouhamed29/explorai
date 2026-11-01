@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
+from explorai_db.blobs import LocalBlobStore
 from explorai_db.models import (
     Document,
     DocumentVersion,
@@ -32,7 +33,6 @@ from explorai_pipelines.ingest import (
 from explorai_pipelines.netsafe import FetchResult
 from explorai_pipelines.repository import Repository
 from explorai_pipelines.sources.base import SourceItem
-from explorai_pipelines.storage import LocalBlobStore
 from explorai_pipelines.testing import image_only_pdf, make_pdf
 
 pytestmark = pytest.mark.integration

@@ -1,9 +1,10 @@
-"""Content-addressed blob storage for raw artifacts."""
+"""Content-addressed blob storage shared by the API and the pipeline."""
 
 import hashlib
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -16,6 +17,14 @@ class BlobStore(Protocol):
         ...
 
     def get(self, key: str) -> bytes: ...
+
+    def delete(self, key: str) -> None:
+        """Remove a blob; a missing key is not an error."""
+        ...
+
+    def keys_older_than(self, seconds: float) -> list[str]:
+        """Keys of blobs last written more than ``seconds`` ago."""
+        ...
 
 
 class LocalBlobStore:
@@ -48,3 +57,15 @@ class LocalBlobStore:
 
     def get(self, key: str) -> bytes:
         return self._path(key).read_bytes()
+
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
+    def keys_older_than(self, seconds: float) -> list[str]:
+        cutoff = time.time() - seconds
+        keys: list[str] = []
+        for path in self._root.glob("??/*"):
+            # Names that are not keys are temporary files of an interrupted write.
+            if _KEY.fullmatch(path.name) and path.stat().st_mtime < cutoff:
+                keys.append(path.name)
+        return sorted(keys)
