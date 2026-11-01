@@ -1,6 +1,6 @@
 """Documents and their sections: reads, private uploads, deletion.
 
-Each query filters by owner explicitly *and* runs in ``scoped_session``: the
+Each query filters by owner explicitly *and* runs in ``ScopedSessions.scoped``: the
 ``WHERE`` clause makes the intent readable and testable, the RLS policy is the
 safety net if a filter is ever forgotten.
 """
@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from explorai_db.models import Document, DocumentVersion, RawArtifact, Section, Source
-from explorai_db.rls import SessionFactory, scoped_session
+from explorai_db.rls import ScopedSessions
 
 Scope = Literal["mine", "public", "all"]
 Status = Literal["processing", "ready", "failed"]
@@ -89,8 +89,8 @@ SectionRows = list[SectionRow]
 
 
 class DocumentsRepository:
-    def __init__(self, factory: SessionFactory) -> None:
-        self._factory = factory
+    def __init__(self, sessions: ScopedSessions) -> None:
+        self._sessions = sessions
 
     def list(
         self,
@@ -110,7 +110,7 @@ class DocumentsRepository:
             query = query.where(
                 tuple_(Document.created_at, Document.id) < tuple_(*after)
             )
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             return [
                 _row(user_id, document, kind, status)
                 for document, kind, status in session.execute(query)
@@ -122,7 +122,7 @@ class DocumentsRepository:
             .join(Source, Source.id == Document.source_id)
             .where(Document.id == document_id, _visible(user_id, "all"))
         )
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             found = session.execute(query).one_or_none()
             if found is None:
                 return None
@@ -148,7 +148,7 @@ class DocumentsRepository:
             .order_by(DocumentVersion.created_at.desc(), DocumentVersion.id.desc())
             .limit(1)
         )
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             version_id = session.scalars(version_query).first()
             if version_id is None:
                 return None
@@ -182,7 +182,7 @@ class DocumentsRepository:
 
     def find_upload(self, user_id: uuid.UUID, sha256: str) -> DocumentRow | None:
         """The document this user already created by uploading these bytes."""
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             return self._find_upload(session, user_id, sha256)
 
     def count_owned(self, user_id: uuid.UUID) -> int:
@@ -192,7 +192,7 @@ class DocumentsRepository:
             .select_from(Document)
             .where(Document.owner_id == user_id)
         )
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             return session.scalar(query) or 0
 
     def create_upload(
@@ -206,7 +206,7 @@ class DocumentsRepository:
         makes that hold for two concurrent uploads too: the unique constraint
         decides, and the loser reads the winner's row instead of failing.
         """
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             source_id = session.scalars(
                 select(Source.id).where(
                     tuple_(Source.kind, Source.name) == tuple_(*UPLOAD_SOURCE)
@@ -250,7 +250,7 @@ class DocumentsRepository:
         another owner's artifact stores the same bytes, so the pipeline
         garbage-collects unreferenced blobs.
         """
-        with scoped_session(self._factory, user_id) as session:
+        with self._sessions.scoped(user_id) as session:
             document = session.scalars(
                 select(Document).where(
                     Document.id == document_id, _visible(user_id, "all")

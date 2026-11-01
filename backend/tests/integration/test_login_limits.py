@@ -16,6 +16,7 @@ from explorai_backend.services.auth import (
     InvalidCredentials,
     TooManyAttempts,
 )
+from explorai_db.rls import ScopedSessions
 
 pytestmark = pytest.mark.integration
 
@@ -31,7 +32,7 @@ def service(
     with session_factory.begin() as session:
         session.execute(text("TRUNCATE users CASCADE"))
     return AuthService(
-        UsersRepository(session_factory),
+        UsersRepository(ScopedSessions(session_factory)),
         SessionStore(redis_client, idle_seconds=86_400, max_seconds=604_800),
         FixedWindowLimiter(redis_client, "login:email", limit=5, window_seconds=900),
         FixedWindowLimiter(redis_client, "login:ip", limit=20, window_seconds=900),

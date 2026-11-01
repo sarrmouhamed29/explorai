@@ -24,7 +24,7 @@ from explorai_backend.api.pagination import (
 )
 from explorai_backend.auth.limits import FixedWindowLimiter
 from explorai_backend.config import Settings, get_settings
-from explorai_backend.deps import get_blob_store, get_redis, get_session_factory
+from explorai_backend.deps import get_blob_store, get_redis, get_scoped_sessions
 from explorai_backend.repositories.documents import DocumentRow, DocumentsRepository
 from explorai_backend.services.documents import (
     DocumentNotFound,
@@ -36,7 +36,7 @@ from explorai_backend.services.documents import (
 )
 from explorai_backend.uploads import NotPdf, TooLarge, read_capped
 from explorai_db.blobs import BlobStore
-from explorai_db.rls import SessionFactory
+from explorai_db.rls import ScopedSessions
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +71,18 @@ class SectionPage(BaseModel):
 
 
 def get_documents_service(
-    factory: Annotated[SessionFactory, Depends(get_session_factory)],
+    sessions: Annotated[ScopedSessions, Depends(get_scoped_sessions)],
 ) -> DocumentsService:
-    return DocumentsService(DocumentsRepository(factory))
+    return DocumentsService(DocumentsRepository(sessions))
 
 
 def get_uploads_service(
     settings: Annotated[Settings, Depends(get_settings)],
-    factory: Annotated[SessionFactory, Depends(get_session_factory)],
+    sessions: Annotated[ScopedSessions, Depends(get_scoped_sessions)],
     blobs: Annotated[BlobStore, Depends(get_blob_store)],
 ) -> UploadsService:
     return UploadsService(
-        DocumentsRepository(factory), blobs, settings.max_documents_per_user
+        DocumentsRepository(sessions), blobs, settings.max_documents_per_user
     )
 
 

@@ -24,6 +24,15 @@ FORBIDDEN_CALLS = frozenset(
 FORBIDDEN_METHODS = frozenset({"begin", "begin_nested", "connect"})
 
 
+def _names_a_factory(identifier: str) -> bool:
+    """Calling a session factory (``self._factory()``) opens an owner session.
+
+    Backend code receives ``ScopedSessions`` and never a factory, so any call of
+    something named like one is a mistake, whatever it is bound to.
+    """
+    return "factory" in identifier.lower()
+
+
 def find_violations(source: str, filename: str = "<src>") -> list[str]:
     """Return ``file:line: reason`` for each way of opening a session or transaction.
 
@@ -62,10 +71,14 @@ def find_violations(source: str, filename: str = "<src>") -> list[str]:
         func = node.func
         if isinstance(func, ast.Name):
             name = aliases.get(func.id, func.id)
-            if name in FORBIDDEN_CALLS:
+            if name in FORBIDDEN_CALLS or _names_a_factory(func.id):
                 violations.append(f"{filename}:{node.lineno}: call to {name}()")
         elif isinstance(func, ast.Attribute):
-            if func.attr in FORBIDDEN_CALLS or func.attr in FORBIDDEN_METHODS:
+            if (
+                func.attr in FORBIDDEN_CALLS
+                or func.attr in FORBIDDEN_METHODS
+                or _names_a_factory(func.attr)
+            ):
                 violations.append(f"{filename}:{node.lineno}: call to .{func.attr}()")
     return sorted(violations)
 
@@ -102,6 +115,12 @@ def test_checker_flags_each_forbidden_form() -> None:
         "conn.begin()",
         "conn.begin_nested()",
         "engine.connect()",
+        # Calling a session factory directly runs as the table owner, past RLS.
+        "self._factory()",
+        "factory()",
+        "with self._factory() as session:\n    pass",
+        "session_factory()",
+        "self.factory.begin()",
     ]
 
     for source in forbidden:

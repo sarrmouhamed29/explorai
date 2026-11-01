@@ -1,5 +1,5 @@
 """Accounts. ``users`` is not under RLS: login looks an email up before anyone
-is known, so these queries run with no identity (``scoped_session(..., None)``)."""
+is known, so these queries run with no identity (``sessions.scoped(None)``)."""
 
 import uuid
 from dataclasses import dataclass
@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from explorai_db.models import User
-from explorai_db.rls import SessionFactory, scoped_session
+from explorai_db.rls import ScopedSessions
 
 EMAIL_INDEX = "ix_users_email_lower"
 
@@ -39,12 +39,12 @@ def _violates_email_index(error: IntegrityError) -> bool:
 
 
 class UsersRepository:
-    def __init__(self, factory: SessionFactory) -> None:
-        self._factory = factory
+    def __init__(self, sessions: ScopedSessions) -> None:
+        self._sessions = sessions
 
     def create(self, email: str, password_hash: str) -> UserRecord:
         try:
-            with scoped_session(self._factory, None) as session:
+            with self._sessions.scoped(None) as session:
                 user = User(email=email.lower(), password_hash=password_hash)
                 session.add(user)
                 session.flush()
@@ -56,13 +56,13 @@ class UsersRepository:
             raise
 
     def by_email(self, email: str) -> UserRecord | None:
-        with scoped_session(self._factory, None) as session:
+        with self._sessions.scoped(None) as session:
             user = session.scalars(
                 select(User).where(func.lower(User.email) == email.lower())
             ).one_or_none()
             return None if user is None else _record(user)
 
     def by_id(self, user_id: uuid.UUID) -> UserRecord | None:
-        with scoped_session(self._factory, None) as session:
+        with self._sessions.scoped(None) as session:
             user = session.get(User, user_id)
             return None if user is None else _record(user)

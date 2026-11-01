@@ -133,7 +133,7 @@ Windows would need the same, while Linux containers do not.
 uv run --package explorai-backend pytest backend/tests/integration/test_isolation.py --no-cov
 ```
 
-Integration tests use a throwaway migrated database (`explorai_db.testing.temporary_database`, so `DATABASE_URL` must be a PostgreSQL superuser) and Redis database 15, flushed per test. `backend/tests/unit/test_architecture.py` (no services) fails if backend code opens a database session other than through `scoped_session`.
+Integration tests use a throwaway migrated database (`explorai_db.testing.temporary_database`, so `DATABASE_URL` must be a PostgreSQL superuser) and Redis database 15, flushed per test. `backend/tests/unit/test_architecture.py` (no services) fails if backend code opens a database session other than through `scoped_session`, including by calling anything named like a session factory (`self._factory()`). Repositories receive `explorai_db.rls.ScopedSessions` from `deps.get_scoped_sessions`, never the factory itself: its only method, `scoped(user_id)`, opens an identity-scoped transaction.
 
 Coverage must stay at or above 80%.
 

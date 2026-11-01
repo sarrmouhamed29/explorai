@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr, Field
 from explorai_backend.auth.limits import FixedWindowLimiter
 from explorai_backend.auth.sessions import SessionStore
 from explorai_backend.config import Settings, get_settings
-from explorai_backend.deps import get_redis, get_session_factory
+from explorai_backend.deps import get_redis, get_scoped_sessions
 from explorai_backend.repositories.users import EmailTaken, UsersRepository
 from explorai_backend.services.auth import (
     AuthService,
@@ -23,7 +23,7 @@ from explorai_backend.services.auth import (
     PublicUser,
     TooManyAttempts,
 )
-from explorai_db.rls import SessionFactory
+from explorai_db.rls import ScopedSessions
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +45,12 @@ class Credentials(BaseModel):
 
 def get_auth_service(
     settings: Annotated[Settings, Depends(get_settings)],
-    factory: Annotated[SessionFactory, Depends(get_session_factory)],
+    sessions: Annotated[ScopedSessions, Depends(get_scoped_sessions)],
     client: Annotated[redis.Redis, Depends(get_redis)],
 ) -> AuthService:
     window = settings.login_window_seconds
     return AuthService(
-        UsersRepository(factory),
+        UsersRepository(sessions),
         SessionStore(
             client, settings.session_idle_seconds, settings.session_max_seconds
         ),

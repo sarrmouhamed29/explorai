@@ -5,6 +5,7 @@ import pytest
 from explorai_backend import deps
 from explorai_backend.config import get_settings
 from explorai_db.blobs import LocalBlobStore
+from explorai_db.rls import ScopedSessions
 
 
 @pytest.fixture(autouse=True)
@@ -37,3 +38,9 @@ def test_session_factory_is_built_lazily_and_cached() -> None:
     factory = deps.get_session_factory()
 
     assert deps.get_session_factory() is factory
+
+
+def test_request_code_gets_scoped_sessions_not_the_factory() -> None:
+    sessions = deps.get_scoped_sessions(deps.get_session_factory())
+
+    assert isinstance(sessions, ScopedSessions)
