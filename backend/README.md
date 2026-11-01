@@ -71,6 +71,7 @@ Uploaded files are processed by the `process-pending` deployment of the pipeline
 - `SET LOCAL ROLE` is not a barrier against SQL injection, and the `explorai_app` role can read `users.password_hash`; a separate login role is planned for sub-project 10 (ADR 0010).
 - No password reset, no "log out everywhere", no retry cap for uploads that keep failing.
 - A newer failed version over an older good one makes the status `failed` while the sections of the good version are still served.
+- Cross-tenant timing oracle on uploads: blobs are content-addressed and shared, and `put()` of bytes already stored by anyone only refreshes the file's mtime instead of writing it. A 20 MB upload of a file someone else already stored therefore answers measurably faster, which lets a user test whether a specific file is stored. Not fixed now (ADR 0010).
 
 ## Run
 
