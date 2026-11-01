@@ -136,12 +136,18 @@ services:
       MAX_DOWNLOAD_BYTES: ${MAX_DOWNLOAD_BYTES:-50000000}
       EXTRACT_TIMEOUT_SECONDS: ${EXTRACT_TIMEOUT_SECONDS:-60}
       ARXIV_MIN_INTERVAL_SECONDS: ${ARXIV_MIN_INTERVAL_SECONDS:-3.0}
+      # With RAG_PROVIDER set, serve also registers index-pending and prune-index.
+      RAG_PROVIDER: ${RAG_PROVIDER:-fake}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?set QDRANT_API_KEY in infra/.env}
     volumes:
       - blobs:/data/blobs
     depends_on:
       migrate:
         condition: service_completed_successfully
       prefect:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     healthcheck:
       # The serving process is useless without the Prefect API, so check that.
