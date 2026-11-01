@@ -99,3 +99,35 @@ def test_unreachable_store_is_retrieval_unavailable(error: Exception) -> None:
 def test_other_errors_are_not_disguised() -> None:
     with pytest.raises(RuntimeError):
         search(RuntimeError("bug"))
+
+
+def recorded_search(question: str) -> dict[str, Any]:
+    client = RecordingClient()
+    QdrantIndex(cast(QdrantClient, client)).search(
+        collection="chunks_model_8",
+        dense=[1.0, 0.0],
+        sparse=encode_query(question),
+        flt=build_scope_filter(uuid.uuid4()),
+        dense_limit=5,
+        sparse_limit=7,
+        limit=3,
+    )
+    return client.kwargs
+
+
+def test_a_question_without_tokens_searches_the_dense_vectors_only() -> None:
+    # Punctuation only: no sparse term, so a sparse prefetch would be an empty
+    # query vector. The dense search alone answers, under the same filter.
+    assert encode_query("?! ...").indices == []
+    kwargs = recorded_search("?! ...")
+    assert "prefetch" not in kwargs
+    assert kwargs["using"] == "dense"
+    assert kwargs["query"] == [1.0, 0.0]
+    assert kwargs["query_filter"] is not None
+    assert kwargs["limit"] == 3
+
+
+def test_a_question_with_tokens_fuses_dense_and_sparse() -> None:
+    kwargs = recorded_search("attention heads")
+    assert [p.using for p in kwargs["prefetch"]] == ["dense", "sparse"]
+    assert kwargs["query"].fusion == "rrf"

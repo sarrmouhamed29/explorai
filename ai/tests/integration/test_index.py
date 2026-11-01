@@ -220,3 +220,14 @@ def test_unreachable_qdrant_raises_retrieval_unavailable() -> None:
             sparse_limit=5,
             limit=5,
         )
+
+
+def test_question_without_tokens_still_finds_dense_neighbours(
+    index: QdrantIndex,
+) -> None:
+    collection = index.ensure_collection(fresh_model(), DIM)
+    index.switch_alias(collection)
+    mine = point([1.0, 0.0, 0.0, 0.0], "alpha beta", "public")
+    index.upsert(collection, [mine])
+    # Punctuation only: an empty sparse query; the dense search answers alone.
+    assert search(index, [1.0, 0.0, 0.0, 0.0], "?! ...", uuid.uuid4()) == [mine.id]

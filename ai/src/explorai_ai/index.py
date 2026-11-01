@@ -17,6 +17,7 @@ import re
 import uuid
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -170,13 +171,16 @@ class QdrantIndex:
         """Dense and sparse candidates of ``collection``, fused by RRF.
 
         The filter goes on each prefetch (candidates are selected there) and on the
-        fusion stage too, so no candidate can bypass it. A missing collection is
-        an empty corpus (``[]``), any other rejection ``RetrievalUnavailable``.
+        fusion stage too, so no candidate can bypass it. A question without any
+        sparse term (punctuation only) has an empty sparse vector: then the dense
+        search alone answers, under the same filter, instead of sending an empty
+        sparse query. A missing collection is an empty corpus (``[]``), any other
+        rejection ``RetrievalUnavailable``.
         """
-        try:
-            response = self._client.query_points(
-                collection_name=collection,
-                prefetch=[
+        query: dict[str, Any]
+        if sparse.indices:
+            query = {
+                "prefetch": [
                     Prefetch(query=dense, using=DENSE, filter=flt, limit=dense_limit),
                     Prefetch(
                         query=QdrantSparseVector(
@@ -187,11 +191,18 @@ class QdrantIndex:
                         limit=sparse_limit,
                     ),
                 ],
-                query=FusionQuery(fusion=Fusion.RRF),
+                "query": FusionQuery(fusion=Fusion.RRF),
+                "limit": limit,
+            }
+        else:
+            query = {"query": dense, "using": DENSE, "limit": min(limit, dense_limit)}
+        try:
+            response = self._client.query_points(
+                collection_name=collection,
                 query_filter=flt,
-                limit=limit,
                 with_payload=False,
                 with_vectors=False,
+                **query,
             )
         except (ResponseHandlingException, httpx.HTTPError) as exc:
             raise RetrievalUnavailable("vector store unreachable") from exc
