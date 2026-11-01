@@ -39,7 +39,7 @@ uv run python -X utf8 -m explorai_ai.measure --provider fake
 
 The real measurement, to run by the maintainer:
 
-1. Start the stack with the real keys exported in the shell or set in the git-ignored `infra/.env` (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `RAG_PROVIDER=real`, `QDRANT_URL`, `QDRANT_API_KEY`, `DATABASE_URL`). Compose forwards the keys and every `RAG_*` setting to both the `backend` and the `pipelines` services (one shared list, `x-rag-environment`), so they agree on the model and dimension. Never put the keys in a committed file. The real provider has its own index (the fake one is `chunks_fake_...`), so everything is re-indexed after the switch.
+1. Start the stack with the real keys exported in the shell or set in the git-ignored `infra/.env` (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `RAG_PROVIDER=real`, `QDRANT_URL`, `QDRANT_API_KEY`, `DATABASE_URL`). Compose forwards the keys and every `RAG_*` setting to both the `backend` and the `pipelines` services (one shared list, `x-rag-environment`), so they agree on the model and dimension. Never put the keys in a committed file. The real provider has its own index (the fake one is `chunks_fake_...`), so everything is re-indexed after the switch; since both services switch at once, answers are partial until that re-indexing finishes (wait for it before measuring).
 2. Put the three papers in the **public** corpus and index them (`index-pending` of the `pipelines` service, see `pipelines/README.md`). Check that the three versions are indexed before measuring; the command only checks that the collection of the configured model exists. This step has not been exercised end to end by the author.
 3. Run:
 
