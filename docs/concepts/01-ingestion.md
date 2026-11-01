@@ -20,7 +20,7 @@ Concept notes for sub-project 1. Each concept is explained plainly, then tied to
 
 **Idea.** The key of a blob is the hash of its bytes. Storing the same bytes twice gives the same key, so writes are idempotent for free, and a key proves what the content is.
 
-**In this repo.** `storage.py`: `LocalBlobStore.put` returns the SHA-256 hex digest, writes to a temporary file and renames it (a crash never leaves a truncated blob under a valid key), and `get` rejects any key that is not 64 lowercase hex characters, which also blocks path traversal.
+**In this repo.** `db/src/explorai_db/blobs.py` (moved from the pipelines package in sub-project 2): `LocalBlobStore.put` returns the SHA-256 hex digest, writes to a temporary file and renames it (a crash never leaves a truncated blob under a valid key), and `get` rejects any key that is not 64 lowercase hex characters, which also blocks path traversal.
 
 ## 4. Safe fetching: SSRF and the size cap
 

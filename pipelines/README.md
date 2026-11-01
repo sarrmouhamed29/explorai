@@ -12,7 +12,7 @@ arXiv / web        allowlist,      blob store +     PDF/HTML     text        exa
 
 - `sources/`: list items and never write to the database (`arxiv.py`, `web.py`). `ArxivSource` is the single gateway to arxiv.org, for the feed and for the PDFs: requests are spaced, carry the identifying `User-Agent`, and a `Retry-After` of 429/503 answers is waited out (capped at 120 s) before the task retries.
 - `netsafe.py`: HTTPS-only, domain allowlist, private addresses refused, redirects re-validated, size cap enforced while streaming.
-- `storage.py`: `BlobStore` and `LocalBlobStore`, keys are SHA-256 digests.
+- Blob storage (`BlobStore`, `LocalBlobStore`, SHA-256 keys) lives in the shared `explorai_db.blobs` module.
 - `extract/`: `pdf.py` (PyMuPDF, run in a separate process with a timeout) and `html.py` (trafilatura). Each is versioned (`pdf-1`, `html-1`).
 - `clean.py`, `dedup.py`: pure text functions.
 - `repository.py`: the only module that writes to the database, one transaction per call.
