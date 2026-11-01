@@ -31,7 +31,7 @@ from explorai_db.testing import temporary_database
 pytestmark = pytest.mark.integration
 
 CHUNK_TABLES = {"chunks", "chunk_index_entries"}
-MODEL = "test-embedding"
+INDEX = "chunks_test_embedding_4"
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ def add_chunked_document(
     )
     session.add(chunk)
     session.flush()
-    session.add(ChunkIndexEntry(chunk_id=chunk.id, embedding_model=MODEL))
+    session.add(ChunkIndexEntry(chunk_id=chunk.id, index_name=INDEX))
     session.flush()
     return Owned(document.id, version.id, chunk.id)
 
@@ -255,8 +255,8 @@ WRITES = [
     "UPDATE chunks SET text = 'forged' WHERE id = :chunk",
     "DELETE FROM chunks WHERE id = :chunk",
     (
-        "INSERT INTO chunk_index_entries (chunk_id, embedding_model, indexed_at)"
-        " VALUES (:chunk, 'forged-model', now())"
+        "INSERT INTO chunk_index_entries (chunk_id, index_name, indexed_at)"
+        " VALUES (:chunk, 'forged-index', now())"
     ),
     "UPDATE chunk_index_entries SET indexed_at = now() WHERE chunk_id = :chunk",
     "DELETE FROM chunk_index_entries WHERE chunk_id = :chunk",
@@ -292,10 +292,10 @@ def test_app_role_cannot_write_chunks(
         assert chunk is not None
         assert chunk.text == "chunk text"
         entries = session.scalars(
-            text("SELECT embedding_model FROM chunk_index_entries WHERE chunk_id = :c"),
+            text("SELECT index_name FROM chunk_index_entries WHERE chunk_id = :c"),
             {"c": world.a.chunk},
         ).all()
-    assert entries == [MODEL]
+    assert entries == [INDEX]
 
 
 def test_deleting_a_version_cascades_to_chunks_and_entries(

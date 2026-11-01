@@ -30,6 +30,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+# Width of ``chunk_index_entries.index_name`` (migration 0005 states it literally).
+INDEX_NAME_MAX_LENGTH = 128
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -191,11 +194,13 @@ class Chunk(Base):
 
 
 class ChunkIndexEntry(Base):
-    """A chunk is in the vector index for ``embedding_model``.
+    """A chunk is in the vector index ``index_name``.
 
-    A chunk without an entry for the current model is pending. Changing the model
-    leaves the old entries in place, so the new collection can be filled in the
-    background while the old one keeps serving.
+    ``index_name`` is the Qdrant collection name, derived from the embedding model
+    *and* dimension (``QdrantIndex.collection_name``): changing either one is a new
+    index in which every chunk is pending. A chunk without an entry for the
+    current index is pending. The old entries stay in place, so the new
+    collection can be filled in the background while the old one keeps serving.
     """
 
     __tablename__ = "chunk_index_entries"
@@ -203,7 +208,10 @@ class ChunkIndexEntry(Base):
     chunk_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
     )
-    embedding_model: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # The longest name settings may produce is checked by RagSettings.
+    index_name: Mapped[str] = mapped_column(
+        String(INDEX_NAME_MAX_LENGTH), primary_key=True
+    )
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

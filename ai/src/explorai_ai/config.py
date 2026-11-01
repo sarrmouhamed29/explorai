@@ -6,6 +6,9 @@ from typing import Any, Literal, Self
 from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from explorai_ai.index import QdrantIndex
+from explorai_db.models import INDEX_NAME_MAX_LENGTH
+
 
 class RagSettings(BaseSettings):
     # Validation errors name the field but never echo its value (API keys).
@@ -48,6 +51,24 @@ class RagSettings(BaseSettings):
     provider_timeout_seconds: float = Field(default=20.0, gt=0, allow_inf_nan=False)
     ask_max_per_hour: int = Field(default=30, gt=0)
     question_max_chars: int = Field(default=2000, gt=0)
+
+    @model_validator(mode="after")
+    def _index_name_fits(self) -> Self:
+        # The index name is stored in chunk_index_entries.index_name; a longer one
+        # would fail every insert, so refuse it at startup instead.
+        if len(self.index_name) > INDEX_NAME_MAX_LENGTH:
+            raise ValueError(
+                "RAG_EMBEDDING_MODEL is too long: the index name would exceed "
+                f"{INDEX_NAME_MAX_LENGTH} characters"
+            )
+        return self
+
+    @property
+    def index_name(self) -> str:
+        """The vector index of these settings (collection and entries name)."""
+        return QdrantIndex.collection_name(
+            self.embedding_model, self.embedding_dimension
+        )
 
     @model_validator(mode="after")
     def _real_provider_needs_keys(self) -> Self:

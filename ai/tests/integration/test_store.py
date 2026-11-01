@@ -28,7 +28,8 @@ from explorai_db.session import make_engine, make_session_factory
 
 pytestmark = pytest.mark.integration
 
-MODEL = "embed-v1"
+INDEX = "chunks_embed_v1_4"
+OTHER_INDEX = "chunks_embed_v0_4"
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -133,7 +134,7 @@ class Corpus:
         version_id: uuid.UUID,
         ordinal: int,
         *,
-        models: tuple[str, ...] = (),
+        indexes: tuple[str, ...] = (),
         heading: str | None = "Intro",
     ) -> uuid.UUID:
         with self._factory.begin() as session:
@@ -148,8 +149,7 @@ class Corpus:
             session.add(chunk)
             session.flush()
             session.add_all(
-                ChunkIndexEntry(chunk_id=chunk.id, embedding_model=model)
-                for model in models
+                ChunkIndexEntry(chunk_id=chunk.id, index_name=name) for name in indexes
             )
             return chunk.id
 
@@ -280,29 +280,29 @@ def test_indexed_state_truth_table(store: ChunkStore, corpus: Corpus) -> None:
     corpus.chunk(no_entries_version, 0)
     corpus.chunk(no_entries_version, 1)
 
-    other_model = corpus.document(user)
-    corpus.chunk(corpus.version(other_model, at(0)), 0, models=("embed-v0",))
+    other_index = corpus.document(user)
+    corpus.chunk(corpus.version(other_index, at(0)), 0, indexes=(OTHER_INDEX,))
 
     partial = corpus.document(user)
     partial_version = corpus.version(partial, at(0))
-    corpus.chunk(partial_version, 0, models=(MODEL,))
+    corpus.chunk(partial_version, 0, indexes=(INDEX,))
     corpus.chunk(partial_version, 1)
 
     complete = corpus.document(user)
     complete_version = corpus.version(complete, at(0))
-    corpus.chunk(complete_version, 0, models=(MODEL, "embed-v0"))
-    corpus.chunk(complete_version, 1, models=(MODEL,))
+    corpus.chunk(complete_version, 0, indexes=(INDEX, OTHER_INDEX))
+    corpus.chunk(complete_version, 1, indexes=(INDEX,))
 
     grows = corpus.document(user)
     grows_version = corpus.version(grows, at(0))
-    corpus.chunk(grows_version, 0, models=(MODEL,))
+    corpus.chunk(grows_version, 0, indexes=(INDEX,))
 
     zero_chunks = corpus.document(user)
     corpus.version(zero_chunks, at(0))
 
     # Only the latest ok version counts: an indexed older one does not help.
     superseded = corpus.document(user)
-    corpus.chunk(corpus.version(superseded, at(0)), 0, models=(MODEL,))
+    corpus.chunk(corpus.version(superseded, at(0)), 0, indexes=(INDEX,))
     corpus.version(superseded, at(1), chunked=False)
 
     # Duplicates follow their canonical version (they have no chunks of their own).
@@ -317,23 +317,23 @@ def test_indexed_state_truth_table(store: ChunkStore, corpus: Corpus) -> None:
     # index any more (prune-index removes it), so its duplicate is not indexed.
     replaced = corpus.document(user)
     replaced_old = corpus.version(replaced, at(0))
-    corpus.chunk(replaced_old, 0, models=(MODEL,))
+    corpus.chunk(replaced_old, 0, indexes=(INDEX,))
     corpus.version(replaced, at(1), chunked=False)
     copy_of_replaced = corpus.document(user)
     corpus.version(copy_of_replaced, at(2), duplicate_of=replaced_old)
 
     public = corpus.document(None)
-    corpus.chunk(corpus.version(public, at(0)), 0, models=(MODEL,))
+    corpus.chunk(corpus.version(public, at(0)), 0, indexes=(INDEX,))
 
     foreign = corpus.document(other_user)
-    corpus.chunk(corpus.version(foreign, at(0)), 0, models=(MODEL,))
+    corpus.chunk(corpus.version(foreign, at(0)), 0, indexes=(INDEX,))
 
     expected = {
         no_version: False,
         only_failed: False,
         not_chunked: False,
         no_entries: False,
-        other_model: False,
+        other_index: False,
         partial: False,
         complete: True,
         grows: True,
@@ -346,20 +346,20 @@ def test_indexed_state_truth_table(store: ChunkStore, corpus: Corpus) -> None:
         public: True,
     }
     requested = [*expected, foreign, uuid.uuid4()]  # invisible, unknown: absent
-    assert store.indexed_state(user, requested, MODEL) == expected
+    assert store.indexed_state(user, requested, INDEX) == expected
 
     # A chunk added to an indexed version makes it pending again.
     corpus.chunk(grows_version, 1)
-    assert store.indexed_state(user, [grows], MODEL) == {grows: False}
-    # The same documents against another model.
-    assert store.indexed_state(user, [complete, other_model], "embed-v0") == {
+    assert store.indexed_state(user, [grows], INDEX) == {grows: False}
+    # The same documents against another index.
+    assert store.indexed_state(user, [complete, other_index], OTHER_INDEX) == {
         complete: False,
-        other_model: True,
+        other_index: True,
     }
 
 
 def test_indexed_state_without_documents_returns_nothing(store: ChunkStore) -> None:
-    assert store.indexed_state(uuid.uuid4(), [], MODEL) == {}
+    assert store.indexed_state(uuid.uuid4(), [], INDEX) == {}
 
 
 def test_indexed_state_issues_one_query_whatever_the_count(
@@ -368,7 +368,7 @@ def test_indexed_state_issues_one_query_whatever_the_count(
     user = corpus.user()
     documents = [corpus.document(user) for _ in range(5)]
     for document in documents:
-        corpus.chunk(corpus.version(document, at(0)), 0, models=(MODEL,))
+        corpus.chunk(corpus.version(document, at(0)), 0, indexes=(INDEX,))
 
     statements: list[str] = []
 
@@ -380,10 +380,10 @@ def test_indexed_state_issues_one_query_whatever_the_count(
 
     event.listen(engine, "before_cursor_execute", record)
     try:
-        store.indexed_state(user, documents[:1], MODEL)
+        store.indexed_state(user, documents[:1], INDEX)
         one = len(statements)
         statements.clear()
-        assert len(store.indexed_state(user, documents, MODEL)) == 5
+        assert len(store.indexed_state(user, documents, INDEX)) == 5
         five = len(statements)
     finally:
         event.remove(engine, "before_cursor_execute", record)

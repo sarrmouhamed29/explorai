@@ -116,7 +116,7 @@ class ChunkStore:
         self,
         user_id: uuid.UUID,
         document_ids: Sequence[uuid.UUID],
-        embedding_model: str,
+        index_name: str,
     ) -> dict[uuid.UUID, bool]:
         """Whether each visible document among ``document_ids`` is searchable.
 
@@ -126,8 +126,10 @@ class ChunkStore:
         version is eligible (still the latest canonical ``ok`` version of its own
         document, so its chunks are the ones :meth:`hydrate` returns), has
         ``chunked_at`` set, and none of its chunks lacks an entry for
-        ``embedding_model``. Zero chunks with ``chunked_at`` set counts as
-        indexed: there is nothing to wait for.
+        ``index_name`` (the live collection, ``RagSettings.index_name``: model
+        and dimension, so a new dimension reads as not indexed until re-indexed).
+        Zero chunks with ``chunked_at`` set counts as indexed: there is nothing
+        to wait for.
 
         Visible documents without an ``ok`` version map to ``False``; unknown or
         invisible ones are absent. One query, whatever the number of documents.
@@ -144,7 +146,7 @@ class ChunkStore:
                 ~select(ChunkIndexEntry.chunk_id)
                 .where(
                     ChunkIndexEntry.chunk_id == Chunk.id,
-                    ChunkIndexEntry.embedding_model == embedding_model,
+                    ChunkIndexEntry.index_name == index_name,
                 )
                 .correlate(Chunk)
                 .exists(),

@@ -13,7 +13,7 @@ The database schema of Explorai: SQLAlchemy 2 models, engine and session helpers
 | `document_versions` | Text extracted from one artifact by one `extractor_version`; `status` is `ok`, `failed` or `unextractable`; `duplicate_of` points at a canonical version |
 | `sections` | Cleaned text split by heading, in `ordinal` order |
 | `chunks` | Retrieval units cut from the sections of one version (`ordinal`, `heading`, `text`, `word_count`, `text_hash`); derived data, rebuilt from `sections` if needed |
-| `chunk_index_entries` | `(chunk_id, embedding_model, indexed_at)`: the chunk is in the vector index for that model; a chunk without an entry for the current model is pending |
+| `chunk_index_entries` | `(chunk_id, index_name, indexed_at)`: the chunk is in that vector index, named after the embedding model and dimension (the Qdrant collection name, at most 128 characters); a chunk without an entry for the current index is pending |
 | `ingestion_runs` | One row per execution, with counters and errors |
 
 `owner_id` is a nullable foreign key to `users`: `NULL` is the shared public corpus. Unique constraints that involve it use `NULLS NOT DISTINCT`. Deleting a document cascades to its versions (and their sections); a version that pointed at a deleted canonical version gets `duplicate_of = NULL`.

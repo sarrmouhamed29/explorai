@@ -92,6 +92,18 @@ def test_ensure_collection_is_idempotent(index: QdrantIndex) -> None:
     assert first == second == f"chunks_{model}_{DIM}"
 
 
+def test_collection_exists_follows_creation_and_deletion(
+    index: QdrantIndex, client: QdrantClient
+) -> None:
+    model = fresh_model()
+    name = index.collection_name(model, DIM)
+    assert index.collection_exists(name) is False
+    index.ensure_collection(model, DIM)
+    assert index.collection_exists(name) is True
+    client.delete_collection(name)
+    assert index.collection_exists(name) is False
+
+
 def test_upsert_and_hybrid_search_finds_semantic_and_keyword_matches(
     index: QdrantIndex,
 ) -> None:

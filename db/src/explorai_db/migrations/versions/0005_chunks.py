@@ -5,8 +5,8 @@ Revises: 0004
 Create Date: 2026-11-01 18:00:00.000000
 
 Adds ``chunks`` (retrieval units cut from the sections of a version),
-``chunk_index_entries`` (which chunk is in the vector index for which embedding
-model) and ``document_versions.chunked_at``. The tables are written to model
+``chunk_index_entries`` (which chunk is in which vector index, named after the
+embedding model and dimension) and ``document_versions.chunked_at``. The tables are written to model
 autogenerate's output (no database was reachable to run it); the SQL after them
 is hand-written, as in 0003: grants, Row-Level Security and policies.
 
@@ -72,10 +72,10 @@ def upgrade() -> None:
     )
     op.create_table('chunk_index_entries',
     sa.Column('chunk_id', sa.Uuid(), nullable=False),
-    sa.Column('embedding_model', sa.String(length=128), nullable=False),
+    sa.Column('index_name', sa.String(length=128), nullable=False),
     sa.Column('indexed_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['chunk_id'], ['chunks.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('chunk_id', 'embedding_model')
+    sa.PrimaryKeyConstraint('chunk_id', 'index_name')
     )
     op.add_column('document_versions', sa.Column('chunked_at', sa.DateTime(timezone=True), nullable=True))
     # Serves the eligibility lookup (latest ok version per document), which runs

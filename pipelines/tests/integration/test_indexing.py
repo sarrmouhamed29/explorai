@@ -69,8 +69,8 @@ def rag_settings(model: str, **overrides: Any) -> RagSettings:
 class FailingEmbedder(FakeEmbedder):
     """Fails with a provider outage from the ``fail_from``-th call on."""
 
-    def __init__(self, fail_from: int) -> None:
-        super().__init__(dimension=DIM)
+    def __init__(self, fail_from: int, dimension: int = DIM) -> None:
+        super().__init__(dimension=dimension)
         self.calls = 0
         self._fail_from = fail_from
 
@@ -213,13 +213,13 @@ def chunk_ids_of(
         )
 
 
-def entry_count(factory: sessionmaker[Session], model: str) -> int:
+def entry_count(factory: sessionmaker[Session], index_name: str) -> int:
     with factory() as session:
         return (
             session.scalar(
                 select(func.count())
                 .select_from(ChunkIndexEntry)
-                .where(ChunkIndexEntry.embedding_model == model)
+                .where(ChunkIndexEntry.index_name == index_name)
             )
             or 0
         )
@@ -264,6 +264,7 @@ def test_new_version_is_chunked_embedded_and_indexed(
         "embedded": 3,
         "skipped": 0,
         "embedding_failed": 0,
+        "reset_entries": 0,
     }
     collection = index.collection_name(settings.embedding_model, DIM)
     public_chunks = chunk_ids_of(session_factory, public)
@@ -271,7 +272,7 @@ def test_new_version_is_chunked_embedded_and_indexed(
     assert len(public_chunks) == 2
     assert len(private_chunks) == 1
     assert points(index, collection) == public_chunks | private_chunks
-    assert entry_count(session_factory, settings.embedding_model) == 3
+    assert entry_count(session_factory, settings.index_name) == 3
     assert index.alias_target() == collection
     assert public_chunks <= search_ids(index, embedder, "dense sparse retrieval")
     [record] = client.retrieve(collection, [str(next(iter(private_chunks)))])
@@ -313,10 +314,11 @@ def test_second_pass_changes_nothing(
         "embedded": 0,
         "skipped": 0,
         "embedding_failed": 0,
+        "reset_entries": 0,
     }
     assert chunk_ids_of(session_factory, version) == chunks
     assert points(index, collection) == indexed
-    assert entry_count(session_factory, settings.embedding_model) == len(chunks)
+    assert entry_count(session_factory, settings.index_name) == len(chunks)
 
 
 def test_new_version_replaces_the_old_in_search_eligibility(
@@ -339,7 +341,7 @@ def test_new_version_replaces_the_old_in_search_eligibility(
     old_chunks = chunk_ids_of(session_factory, old)
     new_chunks = chunk_ids_of(session_factory, new)
     assert repo.eligible_chunk_ids() == new_chunks
-    assert repo.pending_chunks(settings.embedding_model, 10) == []
+    assert repo.pending_chunks(settings.index_name, 10) == []
     # Before pruning both points match; the store re-reads only the new one.
     found = search_ids(index, embedder, "dense sparse retrieval")
     assert old_chunks | new_chunks <= found
@@ -484,9 +486,9 @@ def test_embedding_failure_midway_resumes_next_pass(
     first = index_pending(repo, FailingEmbedder(fail_from=2), index, settings)
 
     assert (first["chunked"], first["embedded"], first["embedding_failed"]) == (3, 1, 1)
-    assert entry_count(session_factory, settings.embedding_model) == 1
+    assert entry_count(session_factory, settings.index_name) == 1
     assert len(points(index, collection)) == 1
-    assert len(repo.pending_chunks(settings.embedding_model, 10)) == 2
+    assert len(repo.pending_chunks(settings.index_name, 10)) == 2
     assert index.alias_target() is None
 
     second = index_pending(repo, embedder, index, settings)
@@ -496,7 +498,7 @@ def test_embedding_failure_midway_resumes_next_pass(
         2,
         0,
     )
-    assert entry_count(session_factory, settings.embedding_model) == 3
+    assert entry_count(session_factory, settings.index_name) == 3
     assert points(index, collection) == repo.eligible_chunk_ids()
     assert index.alias_target() == collection
 
@@ -551,3 +553,105 @@ def test_pipeline_and_chunk_store_agree_on_eligible_chunks(
     expected = chunks[current] | chunks[theirs] | chunks[public] | tie_winner
     assert seen_by_store == expected
     assert repo.eligible_chunk_ids() == seen_by_store
+
+
+def test_dimension_change_builds_a_new_index_and_keeps_the_old_alias_until_complete(
+    repo: Repository,
+    index: QdrantIndex,
+    embedder: FakeEmbedder,
+    corpus: Corpus,
+    session_factory: sessionmaker[Session],
+) -> None:
+    for body in (RETRIEVAL, RERANKING, CHUNKING):
+        corpus.version(corpus.document(), at(0), [body])
+    model = fresh_model()
+    old_settings = rag_settings(model)
+    index_pending(repo, embedder, index, old_settings)
+    everything = repo.eligible_chunk_ids()
+    # Same model, another dimension: another index in which every chunk is pending.
+    wide = DIM * 2
+    new_settings = rag_settings(model, embedding_dimension=wide, embed_batch_size=1)
+    assert new_settings.index_name != old_settings.index_name
+    pending = repo.pending_chunks(new_settings.index_name, 10)
+    assert {chunk.chunk_id for chunk in pending} == everything
+
+    stopped = index_pending(
+        repo, FailingEmbedder(fail_from=2, dimension=wide), index, new_settings
+    )
+
+    assert stopped["embedded"] == 1
+    assert len(points(index, new_settings.index_name)) == 1
+    assert index.alias_target() == old_settings.index_name
+    assert search_ids(index, embedder, "retrieval reranks windows") == everything
+
+    wide_embedder = FakeEmbedder(dimension=wide)
+    finished = index_pending(repo, wide_embedder, index, new_settings)
+
+    assert finished["embedded"] == 2
+    assert index.alias_target() == new_settings.index_name
+    assert points(index, new_settings.index_name) == everything
+    assert search_ids(index, wide_embedder, "retrieval reranks windows") == everything
+    # The old index keeps its entries (a switch back needs no re-embedding).
+    assert entry_count(session_factory, old_settings.index_name) == 3
+
+
+def test_lost_collection_is_rebuilt_from_postgres(
+    repo: Repository,
+    index: QdrantIndex,
+    embedder: FakeEmbedder,
+    corpus: Corpus,
+    session_factory: sessionmaker[Session],
+    client: QdrantClient,
+) -> None:
+    for body in (RETRIEVAL, RERANKING, CHUNKING):
+        corpus.version(corpus.document(), at(0), [body])
+    settings = rag_settings(fresh_model())
+    index_pending(repo, embedder, index, settings)
+    everything = repo.eligible_chunk_ids()
+    # Qdrant loses the collection (volume reset, manual delete); the entries remain.
+    client.delete_collection(settings.index_name)
+    assert entry_count(session_factory, settings.index_name) == 3
+    assert search_ids(index, embedder, "retrieval reranks windows") == set()
+
+    counters = index_pending(repo, embedder, index, settings)
+
+    assert counters["reset_entries"] == 3
+    assert counters["embedded"] == 3
+    assert entry_count(session_factory, settings.index_name) == 3
+    assert points(index, settings.index_name) == everything
+    assert index.alias_target() == settings.index_name
+    assert search_ids(index, embedder, "retrieval reranks windows") == everything
+    # Rebuilt: the next pass has nothing to reset or embed.
+    again = index_pending(repo, embedder, index, settings)
+    assert (again["reset_entries"], again["embedded"]) == (0, 0)
+
+
+def test_indexed_state_follows_the_index_name_across_a_dimension_change(
+    repo: Repository,
+    index: QdrantIndex,
+    embedder: FakeEmbedder,
+    corpus: Corpus,
+    session_factory: sessionmaker[Session],
+) -> None:
+    user = corpus.user()
+    document = corpus.document(user)
+    corpus.version(document, at(0), [RETRIEVAL, RERANKING])
+    model = fresh_model()
+    old_settings = rag_settings(model)
+    new_settings = rag_settings(model, embedding_dimension=DIM * 2)
+    store = ChunkStore(ScopedSessions(session_factory))
+    index_pending(repo, embedder, index, old_settings)
+
+    assert store.indexed_state(user, [document], old_settings.index_name) == {
+        document: True
+    }
+    # The same model at a new dimension has indexed nothing yet.
+    assert store.indexed_state(user, [document], new_settings.index_name) == {
+        document: False
+    }
+
+    index_pending(repo, FakeEmbedder(dimension=DIM * 2), index, new_settings)
+
+    assert store.indexed_state(user, [document], new_settings.index_name) == {
+        document: True
+    }

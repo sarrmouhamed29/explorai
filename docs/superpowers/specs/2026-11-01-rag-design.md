@@ -44,7 +44,7 @@ ADRs: Qdrant and its consequences for isolation; thin code instead of a framewor
 | Table | Content |
 |---|---|
 | `chunks` | `id`, `version_id` (cascade on delete), `ordinal`, `heading`, `text`, `word_count`, `text_hash`; unique `(version_id, ordinal)` |
-| `chunk_index_entries` | `(chunk_id, embedding_model, indexed_at)`; unique `(chunk_id, embedding_model)`. A chunk is pending when it has no entry for the current model |
+| `chunk_index_entries` | `(chunk_id, index_name, indexed_at)`; unique `(chunk_id, index_name)`. `index_name` is the Qdrant collection name (embedding model and dimension). A chunk is pending when it has no entry for the current index |
 
 Both tables follow row-level security like `sections`: visible when the document is public or owned by the current user, with the same restricted grants for `explorai_app`.
 

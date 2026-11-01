@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select, text, update
+from sqlalchemy import ColumnElement, and_, delete, exists, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import InstrumentedAttribute, Session, sessionmaker
 
@@ -447,13 +447,13 @@ class Repository:
             )
             session.flush()
 
-    def pending_chunks(self, embedding_model: str, limit: int) -> list[PendingChunk]:
-        """Chunks of eligible versions with no index entry for ``embedding_model``."""
+    def pending_chunks(self, index_name: str, limit: int) -> list[PendingChunk]:
+        """Chunks of eligible versions with no entry for the index ``index_name``."""
         recorded = (
             select(ChunkIndexEntry.chunk_id)
             .where(
                 ChunkIndexEntry.chunk_id == Chunk.id,
-                ChunkIndexEntry.embedding_model == embedding_model,
+                ChunkIndexEntry.index_name == index_name,
             )
             .correlate(Chunk)
             .exists()
@@ -476,10 +476,8 @@ class Repository:
             ).all()
             return [PendingChunk(*row) for row in rows]
 
-    def record_entries(
-        self, chunk_ids: Sequence[uuid.UUID], embedding_model: str
-    ) -> None:
-        """Mark chunks as indexed for the model; recording one twice is a no-op."""
+    def record_entries(self, chunk_ids: Sequence[uuid.UUID], index_name: str) -> None:
+        """Mark chunks as in the index; recording one twice is a no-op."""
         if not chunk_ids:
             return
         now = datetime.now(UTC)
@@ -490,14 +488,29 @@ class Repository:
                     [
                         {
                             "chunk_id": chunk_id,
-                            "embedding_model": embedding_model,
+                            "index_name": index_name,
                             "indexed_at": now,
                         }
                         for chunk_id in chunk_ids
                     ]
                 )
-                .on_conflict_do_nothing(index_elements=["chunk_id", "embedding_model"])
+                .on_conflict_do_nothing(index_elements=["chunk_id", "index_name"])
             )
+
+    def clear_entries(self, index_name: str) -> int:
+        """Forget every entry of an index, so all its chunks are pending again.
+
+        For an index whose collection no longer exists (Qdrant data lost or
+        deleted): the entries would otherwise claim chunks that are not there.
+        Returns how many entries were removed.
+        """
+        with self._factory.begin() as session:
+            removed = session.execute(
+                delete(ChunkIndexEntry)
+                .where(ChunkIndexEntry.index_name == index_name)
+                .returning(ChunkIndexEntry.chunk_id)
+            ).all()
+            return len(removed)
 
     def eligible_chunk_ids(self) -> set[uuid.UUID]:
         """Ids of every chunk of an eligible version: what the index should hold."""

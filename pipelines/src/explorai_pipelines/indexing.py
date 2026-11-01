@@ -49,19 +49,21 @@ class IndexingRepository(Protocol):
         self, version_id: uuid.UUID, chunks: Sequence[ChunkText]
     ) -> None: ...
 
-    def pending_chunks(
-        self, embedding_model: str, limit: int
-    ) -> list[PendingChunk]: ...
+    def pending_chunks(self, index_name: str, limit: int) -> list[PendingChunk]: ...
 
     def record_entries(
-        self, chunk_ids: Sequence[uuid.UUID], embedding_model: str
+        self, chunk_ids: Sequence[uuid.UUID], index_name: str
     ) -> None: ...
+
+    def clear_entries(self, index_name: str) -> int: ...
 
     def eligible_chunk_ids(self) -> set[uuid.UUID]: ...
 
 
 class VectorIndex(Protocol):
     """What indexing needs from ``QdrantIndex`` (unit tests pass a fake)."""
+
+    def collection_exists(self, name: str) -> bool: ...
 
     def ensure_collection(self, model: str, dimension: int) -> str: ...
 
@@ -128,15 +130,30 @@ def index_pending(
     ``chunked`` versions, ``embedded`` chunks, ``skipped`` (1 when another pass
     holds the lock: nothing is done), ``embedding_failed`` (1 when a provider
     error stopped the pass: what was embedded is kept, the rest stays pending for
-    the next pass; this function never raises for a provider outage).
+    the next pass; this function never raises for a provider outage),
+    ``reset_entries`` (entries forgotten because their collection was missing).
 
-    The collection is the one of the configured model and dimension. The alias
-    moves to it only after a pass that leaves no chunk pending for that model:
-    during a model change, searches keep using the complete old collection
-    until the new one has caught up, then switch in one atomic operation.
+    The index is the collection of the configured model *and* dimension, and the
+    entries are keyed by its name (``settings.index_name``): a new model or a new
+    dimension is a new index in which every chunk is pending. The alias moves to
+    it only after a pass that leaves no chunk pending for it: during the change,
+    searches keep using the complete old collection until the new one has caught
+    up, then switch in one atomic operation.
+
+    If the collection does not exist while entries for it do (Qdrant data lost,
+    collection deleted by hand), the entries are cleared *before* the collection
+    is recreated, so the pass rebuilds it from PostgreSQL instead of leaving an
+    empty collection that the entries claim is full.
     """
-    counters = {"chunked": 0, "embedded": 0, "skipped": 0, "embedding_failed": 0}
+    counters = {
+        "chunked": 0,
+        "embedded": 0,
+        "skipped": 0,
+        "embedding_failed": 0,
+        "reset_entries": 0,
+    }
     model = settings.embedding_model
+    name = settings.index_name
     if embedder.dimension != settings.embedding_dimension:
         raise ValueError("embedder dimension does not match RAG_EMBEDDING_DIMENSION")
     with repo.advisory_lock(INDEX_LOCK) as acquired:
@@ -144,9 +161,18 @@ def index_pending(
             counters["skipped"] = 1
             return counters
         counters["chunked"] = chunk_pending_versions(repo, settings)
+        if not index.collection_exists(name):
+            counters["reset_entries"] = repo.clear_entries(name)
+            if counters["reset_entries"]:
+                logger.warning(
+                    "collection %s missing: %d entries cleared, rebuilding",
+                    name,
+                    counters["reset_entries"],
+                )
+        # Same name: both come from QdrantIndex.collection_name.
         collection = index.ensure_collection(model, settings.embedding_dimension)
         done: set[uuid.UUID] = set()
-        while batch := repo.pending_chunks(model, settings.embed_batch_size):
+        while batch := repo.pending_chunks(name, settings.embed_batch_size):
             if any(chunk.chunk_id in done for chunk in batch):
                 # Recorded chunks are never pending again; seeing one twice means
                 # the entries are not being written. Stop rather than loop forever.
@@ -165,7 +191,7 @@ def index_pending(
                 return counters
             index.upsert(collection, _points(batch, dense))
             ids = [chunk.chunk_id for chunk in batch]
-            repo.record_entries(ids, model)
+            repo.record_entries(ids, name)
             done.update(ids)
             counters["embedded"] += len(batch)
         if index.alias_target() != collection:

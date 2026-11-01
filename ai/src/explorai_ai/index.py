@@ -74,8 +74,15 @@ class QdrantIndex:
 
     @staticmethod
     def collection_name(model: str, dimension: int) -> str:
+        """The collection, and index name in ``chunk_index_entries``, of a model.
+
+        Model *and* dimension: the same model at another dimension is another index.
+        """
         raw = f"chunks_{model}_{dimension}".lower()
         return re.sub(r"[^a-z0-9_]", "_", raw)
+
+    def collection_exists(self, name: str) -> bool:
+        return self._client.collection_exists(name)
 
     def ensure_collection(self, model: str, dimension: int) -> str:
         name = self.collection_name(model, dimension)

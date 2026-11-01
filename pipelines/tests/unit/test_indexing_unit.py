@@ -11,7 +11,7 @@ from explorai_ai.chunking import ChunkText, SectionInput
 from explorai_ai.config import RagSettings
 from explorai_ai.errors import ProviderError, ProviderUnavailable
 from explorai_ai.fakes import FakeEmbedder
-from explorai_ai.index import IndexPoint
+from explorai_ai.index import IndexPoint, QdrantIndex
 from explorai_ai.scope import PUBLIC_OWNER
 from explorai_pipelines import indexing
 from explorai_pipelines.flows import indexing as flows
@@ -26,6 +26,8 @@ from explorai_pipelines.indexing import (
 from explorai_pipelines.repository import PendingChunk, VersionToChunk
 
 DIM = 8
+A = "chunks_model_a_8"
+B = "chunks_model_b_8"
 WORDS = "dense and sparse retrieval complement each other in practice"
 
 
@@ -40,7 +42,7 @@ def rag_settings(**overrides: Any) -> RagSettings:
 
 
 class FakeRepo:
-    """Chunks with their model entries, versions to chunk, and held lock keys."""
+    """Chunks with their index entries, versions to chunk, and held lock keys."""
 
     def __init__(self) -> None:
         self.held: set[int] = set()
@@ -50,6 +52,7 @@ class FakeRepo:
         self.entries: set[tuple[uuid.UUID, str]] = set()
         self.ineligible: set[uuid.UUID] = set()
         self.record_calls = 0
+        self.events: list[str] = []
 
     @contextmanager
     def advisory_lock(self, key: int) -> Iterator[bool]:
@@ -80,20 +83,24 @@ class FakeRepo:
         self.chunks.extend(made)
         return [c.chunk_id for c in made]
 
-    def pending_chunks(self, embedding_model: str, limit: int) -> list[PendingChunk]:
+    def pending_chunks(self, index_name: str, limit: int) -> list[PendingChunk]:
         pending = [
             c
             for c in self.chunks
-            if (c.chunk_id, embedding_model) not in self.entries
+            if (c.chunk_id, index_name) not in self.entries
             and c.chunk_id not in self.ineligible
         ]
         return pending[:limit]
 
-    def record_entries(
-        self, chunk_ids: Sequence[uuid.UUID], embedding_model: str
-    ) -> None:
+    def record_entries(self, chunk_ids: Sequence[uuid.UUID], index_name: str) -> None:
         self.record_calls += 1
-        self.entries.update((c, embedding_model) for c in chunk_ids)
+        self.entries.update((c, index_name) for c in chunk_ids)
+
+    def clear_entries(self, index_name: str) -> int:
+        self.events.append(f"clear {index_name}")
+        gone = {e for e in self.entries if e[1] == index_name}
+        self.entries -= gone
+        return len(gone)
 
     def eligible_chunk_ids(self) -> set[uuid.UUID]:
         return {c.chunk_id for c in self.chunks} - self.ineligible
@@ -104,13 +111,19 @@ class FakeIndex:
         self.collections: dict[str, dict[uuid.UUID, IndexPoint]] = {}
         self.alias: str | None = None
         self.deletes: list[int] = []
+        self.events: list[str] = []
+
+    def collection_exists(self, name: str) -> bool:
+        return name in self.collections
 
     def ensure_collection(self, model: str, dimension: int) -> str:
-        name = f"chunks_{model}_{dimension}"
+        name = QdrantIndex.collection_name(model, dimension)
+        self.events.append(f"ensure {name}")
         self.collections.setdefault(name, {})
         return name
 
     def upsert(self, collection: str, points: Sequence[IndexPoint]) -> None:
+        self.events.append(f"upsert {collection}")
         for p in points:
             self.collections[collection][p.id] = p
 
@@ -133,9 +146,12 @@ class RecordingEmbedder(FakeEmbedder):
     """FakeEmbedder that records batch sizes and can fail from a given call on."""
 
     def __init__(
-        self, fail_from_call: int | None = None, error: type[Exception] | None = None
+        self,
+        fail_from_call: int | None = None,
+        error: type[Exception] | None = None,
+        dimension: int = DIM,
     ) -> None:
-        super().__init__(dimension=DIM)
+        super().__init__(dimension=dimension)
         self.calls: list[int] = []
         self._fail_from = fail_from_call
         self._error = error or ProviderUnavailable
@@ -170,10 +186,11 @@ def test_provider_outage_stops_the_pass_and_keeps_chunks_pending(
         "embedded": 2,
         "skipped": 0,
         "embedding_failed": 1,
+        "reset_entries": 0,
     }
-    collection = "chunks_model-a_8"
+    collection = A
     assert set(index.collections[collection]) == set(ids[:2])
-    assert [c.chunk_id for c in repo.pending_chunks("model-a", 10)] == ids[2:]
+    assert [c.chunk_id for c in repo.pending_chunks(A, 10)] == ids[2:]
     # Incomplete: the alias is not created on a partial collection.
     assert index.alias is None
     # The next pass, provider back, finishes and goes live.
@@ -222,6 +239,7 @@ def test_lock_held_means_skipped(repo: FakeRepo, index: FakeIndex) -> None:
         "embedded": 0,
         "skipped": 1,
         "embedding_failed": 0,
+        "reset_entries": 0,
     }
     assert embedder.calls == []
     assert repo.saved == {}
@@ -237,7 +255,7 @@ def test_points_carry_owner_document_version_and_both_vectors(
 
     index_pending(repo, RecordingEmbedder(), index, rag_settings())
 
-    points = index.collections["chunks_model-a_8"]
+    points = index.collections[A]
     assert points[private].owner == str(user)
     assert points[public].owner == PUBLIC_OWNER
     chunk = repo.chunks[0]
@@ -281,15 +299,15 @@ def test_model_change_switches_the_alias_only_once_complete(
 ) -> None:
     repo.add_chunks(3)
     index_pending(repo, RecordingEmbedder(), index, rag_settings())
-    assert index.alias == "chunks_model-a_8"
+    assert index.alias == A
 
     new = rag_settings(embedding_model="model-b", embed_batch_size=1)
     index_pending(repo, RecordingEmbedder(fail_from_call=2), index, new)
-    assert index.alias == "chunks_model-a_8"
-    assert len(index.collections["chunks_model-b_8"]) == 1
+    assert index.alias == A
+    assert len(index.collections[B]) == 1
 
     index_pending(repo, RecordingEmbedder(), index, new)
-    assert index.alias == "chunks_model-b_8"
+    assert index.alias == B
 
 
 def test_alias_left_alone_when_already_current(
@@ -315,7 +333,7 @@ def test_entries_not_written_stop_the_pass_instead_of_looping(
     repo: FakeRepo, index: FakeIndex, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo.add_chunks(1)
-    monkeypatch.setattr(repo, "record_entries", lambda ids, model: None)
+    monkeypatch.setattr(repo, "record_entries", lambda ids, name: None)
 
     with pytest.raises(RuntimeError, match="still reported as pending"):
         index_pending(repo, RecordingEmbedder(), index, rag_settings())
@@ -329,14 +347,14 @@ def test_prune_deletes_ineligible_points_of_the_alias_target_in_batches(
     repo.ineligible.update(ids[:5])
     # Another collection (a model change in progress) is not touched.
     other = index.ensure_collection("model-b", DIM)
-    index.collections[other][ids[0]] = index.collections["chunks_model-a_8"][ids[0]]
+    index.collections[other][ids[0]] = index.collections[A][ids[0]]
     monkeypatch.setattr(indexing, "PRUNE_BATCH", 2)
 
     counters = prune_index(repo, index, rag_settings())
 
     assert counters == {"pruned": 5, "skipped": 0}
     assert index.deletes == [2, 2, 1]
-    assert set(index.collections["chunks_model-a_8"]) == set(ids[5:])
+    assert set(index.collections[A]) == set(ids[5:])
     assert ids[0] in index.collections[other]
 
 
@@ -443,3 +461,62 @@ def test_rag_runtime_is_built_from_the_environment_without_connecting(
     assert rag is not None
     assert rag.settings.embedding_dimension == 16
     assert rag.embedder.dimension == 16
+
+
+def test_lost_collection_clears_its_entries_before_any_upsert(
+    repo: FakeRepo, index: FakeIndex
+) -> None:
+    ids = repo.add_chunks(3)
+    index_pending(repo, RecordingEmbedder(), index, rag_settings())
+    other = {(ids[0], "chunks_another_index_8")}
+    repo.entries |= other
+    # Qdrant lost the collection; PostgreSQL still says every chunk is in it.
+    del index.collections[A]
+    index.events.clear()
+    log: list[str] = []
+    index.events = repo.events = log
+
+    counters = index_pending(repo, RecordingEmbedder(), index, rag_settings())
+
+    assert counters["reset_entries"] == 3
+    assert counters["embedded"] == 3
+    assert log[:2] == [f"clear {A}", f"ensure {A}"]
+    assert log.index(f"clear {A}") < log.index(f"upsert {A}")
+    assert set(index.collections[A]) == set(ids)
+    # Entries of other indexes are untouched.
+    assert other <= repo.entries
+
+
+def test_existing_collection_keeps_its_entries(
+    repo: FakeRepo, index: FakeIndex
+) -> None:
+    repo.add_chunks(2)
+    index_pending(repo, RecordingEmbedder(), index, rag_settings())
+    entries = set(repo.entries)
+    repo.events.clear()
+
+    counters = index_pending(repo, RecordingEmbedder(), index, rag_settings())
+
+    assert (counters["reset_entries"], counters["embedded"]) == (0, 0)
+    assert repo.events == []
+    assert repo.entries == entries
+
+
+def test_dimension_change_is_a_new_index_with_every_chunk_pending(
+    repo: FakeRepo, index: FakeIndex
+) -> None:
+    ids = repo.add_chunks(3)
+    index_pending(repo, RecordingEmbedder(), index, rag_settings())
+    wider = rag_settings(embedding_dimension=16, embed_batch_size=1)
+    new = "chunks_model_a_16"
+
+    stopped = index_pending(
+        repo, RecordingEmbedder(fail_from_call=2, dimension=16), index, wider
+    )
+
+    assert stopped["embedded"] == 1
+    assert [c.chunk_id for c in repo.pending_chunks(new, 10)] == ids[1:]
+    assert index.alias == A
+    index_pending(repo, RecordingEmbedder(dimension=16), index, wider)
+    assert index.alias == new
+    assert set(index.collections[new]) == set(ids)

@@ -1,7 +1,9 @@
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import String
 
 from explorai_ai.config import RagSettings, get_rag_settings
+from explorai_db.models import INDEX_NAME_MAX_LENGTH, ChunkIndexEntry
 
 
 @pytest.fixture(autouse=True)
@@ -115,3 +117,30 @@ def test_non_finite_floats_are_rejected(
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError):
         RagSettings.from_env()
+
+
+def test_index_name_is_the_collection_of_model_and_dimension() -> None:
+    settings = RagSettings(
+        provider="fake", embedding_model="voyage-4", embedding_dimension=512
+    )
+    assert settings.index_name == "chunks_voyage_4_512"
+
+
+def test_index_name_must_fit_the_entries_column() -> None:
+    column_type = ChunkIndexEntry.__table__.c.index_name.type
+    assert isinstance(column_type, String)
+    assert column_type.length == INDEX_NAME_MAX_LENGTH
+    # "chunks_" + model + "_" + dimension: find the longest model that fits.
+    dimension = 4096
+    room = INDEX_NAME_MAX_LENGTH - len(f"chunks__{dimension}")
+    fits = RagSettings(
+        provider="fake", embedding_model="m" * room, embedding_dimension=dimension
+    )
+    assert len(fits.index_name) == INDEX_NAME_MAX_LENGTH
+    with pytest.raises(ValidationError) as excinfo:
+        RagSettings(
+            provider="fake",
+            embedding_model="m" * (room + 1),
+            embedding_dimension=dimension,
+        )
+    assert "RAG_EMBEDDING_MODEL is too long" in str(excinfo.value)
