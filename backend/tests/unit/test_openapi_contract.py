@@ -16,3 +16,18 @@ def test_openapi_declares_health_paths() -> None:
     assert "/health/live" in paths
     assert "/health/ready" in paths
     assert {"200", "503"} <= set(paths["/health/ready"]["get"]["responses"])
+
+
+def test_openapi_declares_user_api_paths() -> None:
+    paths = create_app().openapi()["paths"]
+    expected = {
+        "/api/v1/auth/signup": {"post"},
+        "/api/v1/auth/login": {"post"},
+        "/api/v1/auth/logout": {"post"},
+        "/api/v1/auth/me": {"get"},
+        "/api/v1/documents": {"get", "post"},
+        "/api/v1/documents/{document_id}": {"get", "delete"},
+        "/api/v1/documents/{document_id}/sections": {"get"},
+    }
+    for path, methods in expected.items():
+        assert methods <= set(paths[path]), path

@@ -73,3 +73,71 @@ if [ "${SMOKE_NETWORK:-0}" = "1" ]; then
   fi
   echo "PASS: arXiv batch ingested ($versions versions)"
 fi
+
+# --- user journey through the frontend proxy ---------------------------------
+# Everything below goes through the frontend origin (5173), as the browser does:
+# it proves the /api proxy, the Origin check, the session cookie, the upload, the
+# asynchronous pipeline (process-pending, every 30 s) and the per-user isolation.
+BASE="http://127.0.0.1:5173/api/v1"
+ORIGIN="http://127.0.0.1:5173"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"; cleanup' EXIT
+
+run_id="$(date +%s)-$RANDOM"
+password="smoke-test-password-$run_id"
+# Never echo the password or the cookie jars: only statuses and ids are printed.
+api() { # api <jar> <method> <path> [curl args...] -> body in $WORK/body, status on stdout
+  local jar="$1" method="$2" path="$3"
+  shift 3
+  curl -sS -o "$WORK/body" -w '%{http_code}' --max-time 30 -b "$jar" -c "$jar" \
+    -H "Origin: $ORIGIN" -X "$method" "$@" "$BASE$path" || true
+}
+expect() { # expect <name> <got> <want>
+  if [ "$2" != "$3" ]; then
+    echo "FAIL: $1 (got ${2:-no response}, expected $3)" >&2
+    exit 1
+  fi
+  echo "PASS: $1"
+}
+
+for who in alice bob; do
+  code="$(api "$WORK/$who.jar" POST /auth/signup -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$who-$run_id@example.com\",\"password\":\"$password\"}")"
+  expect "signup $who" "$code" "201"
+  code="$(api "$WORK/$who.jar" POST /auth/login -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$who-$run_id@example.com\",\"password\":\"$password\"}")"
+  expect "login $who" "$code" "204"
+done
+
+code="$(api "$WORK/alice.jar" GET /auth/me)"
+expect "session cookie accepted" "$code" "200"
+
+code="$(api "$WORK/alice.jar" POST "/documents?filename=2610.40627.pdf" \
+  -H 'Content-Type: application/pdf' --data-binary @pipelines/tests/fixtures/annotated/2610.40627.pdf)"
+expect "upload accepted" "$code" "202"
+doc_id="$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' "$WORK/body")"
+if [ -z "$doc_id" ]; then
+  echo "FAIL: upload response carries no document id" >&2
+  exit 1
+fi
+
+status=""
+for _ in $(seq 1 90); do
+  code="$(api "$WORK/alice.jar" GET "/documents/$doc_id")"
+  if [ "$code" = "200" ] && grep -q '"status":"ready"' "$WORK/body"; then
+    status="ready"
+    break
+  fi
+  sleep 2
+done
+if [ "$status" != "ready" ]; then
+  echo "FAIL: document $doc_id not ready within 180 s" >&2
+  exit 1
+fi
+echo "PASS: document processed by the pipeline"
+
+code="$(api "$WORK/alice.jar" GET "/documents/$doc_id/sections")"
+expect "sections served" "$code" "200"
+
+code="$(api "$WORK/bob.jar" GET "/documents/$doc_id")"
+expect "another user gets 404" "$code" "404"
