@@ -1,0 +1,72 @@
+[
+  {
+    "question": "By how many percentage points does full Multi-View MoE improve the mean score over the baseline?",
+    "paper": "2610.40577",
+    "expected_quote": "full Multi-View MoE improves the mean score across nine downstream tasks by 1.18 percentage points over the baseline"
+  },
+  {
+    "question": "Why does Multi-View MoE keep the same active-expert count and communication volume as a standard MoE?",
+    "paper": "2610.40577",
+    "expected_quote": "Each selected expert executes one forward pass, preserving the active-expert count, expert FLOPs, and all-to-all communication volume."
+  },
+  {
+    "question": "How does the Multi-Router submodule combine its routing heads before selecting experts?",
+    "paper": "2610.40577",
+    "expected_quote": "independently initialized sigmoid routing heads produce scores that are summed before one top-k selection"
+  },
+  {
+    "question": "What do routing scores decide in a sparse mixture-of-experts model?",
+    "paper": "2610.40577",
+    "expected_quote": "Routing scores determine which experts process each token and how their outputs are combined."
+  },
+  {
+    "question": "How many hypotheses does the Strata benchmark contain and what data are they about?",
+    "paper": "2610.40619",
+    "expected_quote": "8,735 hypotheses over the clinical timelines of vaccine adverse-event reports"
+  },
+  {
+    "question": "What is the Art paradigm proposed for temporal hypothesis verification?",
+    "paper": "2610.40619",
+    "expected_quote": "Art (articulate, retrieve, test), a staged paradigm that exposes each decision as an inspectable output"
+  },
+  {
+    "question": "At which decision do systems fail most on the Strata benchmark?",
+    "paper": "2610.40619",
+    "expected_quote": "systems fail mostly at choosing which records count"
+  },
+  {
+    "question": "In which part of a response does safety alignment concentrate, according to the ShallowDefend paper?",
+    "paper": "2610.40627",
+    "expected_quote": "Safety alignment is known to be shallow: an aligned model departs from its base almost exclusively over the first few output tokens"
+  },
+  {
+    "question": "How well protected are language models against multi-turn attacks compared with single-turn ones?",
+    "paper": "2610.40627",
+    "expected_quote": "Multi-turn dialogue, however, remains far less protected."
+  },
+  {
+    "question": "Why does a response that opens compliantly tend to stay compliant?",
+    "paper": "2610.40627",
+    "expected_quote": "once a response opens compliantly the aligned distribution collapses back to the base model"
+  },
+  {
+    "question": "Who won the 2022 FIFA World Cup final?",
+    "paper": "none",
+    "expected_quote": null
+  },
+  {
+    "question": "How does the original Transformer define its sinusoidal positional encodings?",
+    "paper": "none",
+    "expected_quote": null
+  },
+  {
+    "question": "Which diffusion model architecture is best for high-resolution image generation?",
+    "paper": "none",
+    "expected_quote": null
+  },
+  {
+    "question": "What are the first-line treatments for type 2 diabetes?",
+    "paper": "none",
+    "expected_quote": null
+  }
+]
