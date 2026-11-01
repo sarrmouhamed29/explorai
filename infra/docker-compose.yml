@@ -42,8 +42,8 @@ services:
       BLOB_DIR: /data/blobs
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:5173}
       # The dev stack serves plain HTTP: a Secure cookie would not be usable by curl.
-      # Production MUST keep SESSION_COOKIE_SECURE true (the default).
-      SESSION_COOKIE_SECURE: "false"
+      # Production MUST set SESSION_COOKIE_SECURE=true (the application default).
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-20000000}
     volumes:
       - blobs:/data/blobs

@@ -16,6 +16,7 @@ fi
 # Capture the exit status first so the diagnostics and teardown cannot mask it.
 cleanup() {
   local status=$?
+  rm -rf "${WORK:-}"
   if [ "$status" -ne 0 ]; then
     echo "Smoke test failed (exit $status); container logs follow." >&2
     compose logs --no-color --tail=100 >&2 || true
@@ -81,7 +82,7 @@ fi
 BASE="http://127.0.0.1:5173/api/v1"
 ORIGIN="http://127.0.0.1:5173"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"; cleanup' EXIT
+
 
 run_id="$(date +%s)-$RANDOM"
 password="smoke-test-password-$run_id"
