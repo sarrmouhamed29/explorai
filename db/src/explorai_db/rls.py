@@ -21,6 +21,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 APP_ROLE = "explorai_app"
 
+# Lets callers type the factory they pass in without importing ``sessionmaker``,
+# which the backend's architecture test reserves for the module that builds it.
+type SessionFactory = sessionmaker[Session]
+
 # SET takes no bind parameters; the role is a constant, never user input.
 _SET_ROLE = text(f"SET LOCAL ROLE {APP_ROLE}")
 _SET_IDENTITY = text("SELECT set_config('app.user_id', :uid, true)")
@@ -28,7 +32,7 @@ _SET_IDENTITY = text("SELECT set_config('app.user_id', :uid, true)")
 
 @contextmanager
 def scoped_session(
-    factory: sessionmaker[Session], user_id: uuid.UUID | None
+    factory: SessionFactory, user_id: uuid.UUID | None
 ) -> Iterator[Session]:
     """Yield a session in one transaction run as ``explorai_app`` for ``user_id``.
 

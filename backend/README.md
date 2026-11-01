@@ -1,11 +1,26 @@
 # Explorai backend
 
-FastAPI service for Explorai. Currently exposes health endpoints:
+FastAPI service for Explorai. Health endpoints:
 
 - `GET /health/live` - liveness: the process is up (always 200).
 - `GET /health/ready` - readiness: PostgreSQL and Redis are reachable. Returns 200, or 503 with
   per-dependency status (`{"status": "unavailable", "checks": {"postgres": "down", "redis": "ok"}}`).
   Each check is bounded by `CHECK_TIMEOUT_SECONDS`; error details are never returned or logged.
+
+Accounts (`/api/v1/auth`, spec section 6 of `docs/superpowers/specs/2026-11-01-core-backend-design.md`):
+
+- `POST /signup` - `{email, password}` (password 12 to 128 characters, Argon2id): 201 with
+  `{id, email}`, 409 if the email is taken (case-insensitive).
+- `POST /login` - 204 and an `explorai_session` cookie (`HttpOnly`, `SameSite=Lax`, `Path=/`,
+  `Secure` unless `SESSION_COOKIE_SECURE=false`); 401 `invalid credentials` for every failure;
+  429 after `LOGIN_MAX_FAILURES_PER_EMAIL` (5) or `LOGIN_MAX_FAILURES_PER_IP` (20) failures within
+  `LOGIN_WINDOW_SECONDS` (900).
+- `POST /logout` - 204; deletes the session server-side and clears the cookie.
+- `GET /me` - the current user, or 401.
+
+Sessions live in Redis as `session:<sha256(token)>` (the raw token is never stored), expire after
+`SESSION_IDLE_SECONDS` without use and at most `SESSION_MAX_SECONDS` after login. Redis down gives
+503 (fail closed), PostgreSQL down gives 503. 422 answers never echo the rejected input.
 
 ## Run
 
