@@ -107,6 +107,13 @@ class Document(Base):
     owner_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=func.now()
+    )
+
+
+# Serves the keyset pagination of the documents list (newest first).
+Index("ix_documents_created_at_id", Document.created_at.desc(), Document.id.desc())
 
 
 class DocumentVersion(Base):
