@@ -160,7 +160,11 @@ class Retriever:
                 dense = self._embedder.embed_query(query)
             except ProviderError as exc:
                 raise RetrievalUnavailable("query embedding failed") from exc
+            # The collection of this process's own model and dimension: never
+            # the alias, which the pipeline may already have moved to a model
+            # this process does not embed with.
             hits = self._index.search(
+                collection=settings.index_name,
                 dense=dense,
                 sparse=encode_query(query),
                 flt=flt,

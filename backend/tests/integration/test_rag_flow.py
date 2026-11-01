@@ -288,11 +288,11 @@ def test_empty_corpus_gives_insufficient_evidence_not_500(
             [],
         )
 
-    # 1. Nothing indexed ever: the alias does not exist.
-    assert qdrant_index.alias_target() is None
+    # 1. Nothing indexed ever: the collection of this model does not exist.
+    assert not qdrant_index.collection_exists(rag_settings.index_name)
     assert_refused(ALICE_QUESTION)
 
-    # 2. The alias points at a collection with no point.
+    # 2. The collection exists (and the alias points at it) with no point.
     collection = qdrant_index.ensure_collection(
         rag_settings.index_model, rag_settings.embedding_dimension
     )

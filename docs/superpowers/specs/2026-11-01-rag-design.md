@@ -54,7 +54,7 @@ Both tables follow row-level security like `sections`: visible when the document
 
 ## 5. Indexing
 
-**Qdrant collection.** Named after the embedding model and dimension, with an alias `chunks_current`. Changing the model creates a new collection, indexes it in the background, then switches the alias: no downtime, comparable to `extractor_version`. A point's id is the chunk id. Payload: `owner_id` (the value `"public"` for the public corpus), `document_id`, `version_id`; no text. Each point holds a dense vector (Voyage) and a sparse BM25-style vector computed locally (no API).
+**Qdrant collection.** Named after the embedding model and dimension, with an alias `chunks_current`. Changing the model creates a new collection that the pipeline indexes in the background without touching what the API serves, then switches the alias (its marker of the complete live collection); comparable to `extractor_version`. The API searches the collection of its own configured model (`RagSettings.index_name`), never the alias, so it never mixes models, and flips when its own configuration changes. Deploy order: re-index with the pipelines first, then change the backend's model settings. A point's id is the chunk id. Payload: `owner_id` (the value `"public"` for the public corpus), `document_id`, `version_id`; no text. Each point holds a dense vector (Voyage) and a sparse BM25-style vector computed locally (no API).
 
 **Deployments** (each under its own PostgreSQL advisory lock, like `process-pending`):
 - `index-pending`, every 30 seconds: chunks new eligible versions, embeds pending chunks in batches (rate limits, retries), upserts into Qdrant, records the index entry. A provider outage leaves chunks pending for the next pass; ingestion never depends on it.
@@ -110,7 +110,7 @@ Compose adds a `qdrant` service: image pinned to an exact tag, port bound to `12
   - Full path: upload, `index-pending`, `indexed`, question, answer with a verified citation.
   - A corpus lacking the answer: refusal, with no generator call when the threshold is not reached.
   - Document deletion: the orphan point never yields text; `prune-index` removes it.
-  - Embedding model change: new collection indexed, alias switched without a gap.
+  - Embedding model change: new collection indexed in the background while the API keeps serving its own model's collection; the alias moves once it is complete, and the API flips when its own configuration changes (pipelines first, then backend).
 - **Smoke:** sign-up, upload, indexing, question and cited answer against the Compose stack with the fakes.
 - Coverage gate stays at 80% per package.
 
@@ -157,7 +157,7 @@ The implementation plan (`docs/superpowers/plans/2026-11-01-rag.md`) and the rev
 **Qdrant and retrieval**
 
 7. **Image `qdrant/qdrant:v1.20.0`**, port bound to `127.0.0.1`, API key required, health check by `bash` opening a TCP connection (the image has no `curl` or `wget`). Alias `chunks_current`; the public corpus payload value is `"public"`.
-8. **Qdrant errors:** a 404 on the alias or collection (nothing indexed yet) is an empty result, so the answer is a refusal, not a `503`; every other error response (5xx, but also non-404 4xx such as a vector-dimension error during a re-index, 401/403, 429) and an unreachable server raise `RetrievalUnavailable` (`503`). The Qdrant client timeout is the provider timeout rounded up to whole seconds (a sub-second setting never becomes 0).
+8. **Qdrant errors:** a 404 on the API's collection (nothing indexed for its model yet) is an empty result, so the answer is a refusal, not a `503`; every other error response (5xx, but also non-404 4xx, 401/403, 429) and an unreachable server raise `RetrievalUnavailable` (`503`). The Qdrant client timeout is the provider timeout rounded up to whole seconds (a sub-second setting never becomes 0).
 9. **The retriever calls the filter builder through its module** (`scoping.build_scope_filter`) so the isolation test can replace it; the AST test that forbids building filters elsewhere exempts `scope.py` and `index.py` by file name.
 10. **The refusal threshold applies only after a successful rerank.** With reranking disabled or failed, `best_score` is `None` (RRF scores depend only on ranks and cannot be compared with a relevance threshold) and the generator decides. A reranker returning no usable hit counts as a failure.
 

@@ -40,14 +40,14 @@ uv run python -X utf8 -m explorai_ai.measure --provider fake
 The real measurement, to run by the maintainer:
 
 1. Start the stack with the real keys exported (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `RAG_PROVIDER=real`, `QDRANT_URL`, `QDRANT_API_KEY`, `DATABASE_URL`). Never put the keys in a committed file.
-2. Put the three papers in the **public** corpus and index them (`index-pending` of the `pipelines` service, see `pipelines/README.md`). Check that the three versions are indexed before measuring; the command only checks that the Qdrant alias exists. This step has not been exercised end to end by the author.
+2. Put the three papers in the **public** corpus and index them (`index-pending` of the `pipelines` service, see `pipelines/README.md`). Check that the three versions are indexed before measuring; the command only checks that the collection of the configured model exists. This step has not been exercised end to end by the author.
 3. Run:
 
 ```bash
 uv run python -X utf8 -m explorai_ai.measure --provider real --output docs/evaluation/rag-baseline-run.md
 ```
 
-Without the keys, the Qdrant alias or `DATABASE_URL` the command stops with a message and exit code 2, before any provider call. A provider outage stops it with exit code 1.
+Without the keys, the model's Qdrant collection or `DATABASE_URL` the command stops with a message and exit code 2, before any provider call. A provider outage stops it with exit code 1.
 
 ## Questions to review (by the maintainer)
 

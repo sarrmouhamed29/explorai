@@ -1,6 +1,7 @@
 """How QdrantIndex.search maps Qdrant's error responses (no server needed)."""
 
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
@@ -29,6 +30,7 @@ class RaisingClient:
 def search(error: Exception) -> list[Any]:
     index = QdrantIndex(cast(QdrantClient, RaisingClient(error)))
     return index.search(
+        collection="chunks_model_8",
         dense=[1.0, 0.0],
         sparse=encode_query("attention"),
         flt=build_scope_filter(uuid.uuid4()),
@@ -42,12 +44,36 @@ def response(status: int | None) -> UnexpectedResponse:
     return UnexpectedResponse(status, "Bad Request", SECRET_BODY, httpx.Headers())
 
 
-def test_missing_alias_is_an_empty_result() -> None:
+class RecordingClient:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, Any] = {}
+
+    def query_points(self, **kwargs: Any) -> Any:
+        self.kwargs = kwargs
+        return SimpleNamespace(points=[])
+
+
+def test_search_queries_the_named_collection_not_the_alias() -> None:
+    client = RecordingClient()
+    index = QdrantIndex(cast(QdrantClient, client), alias="chunks_current")
+    index.search(
+        collection="chunks_model_8",
+        dense=[1.0, 0.0],
+        sparse=encode_query("attention"),
+        flt=build_scope_filter(uuid.uuid4()),
+        dense_limit=5,
+        sparse_limit=5,
+        limit=5,
+    )
+    assert client.kwargs["collection_name"] == "chunks_model_8"
+
+
+def test_missing_collection_is_an_empty_result() -> None:
     assert search(response(404)) == []
 
 
-# 400 is the realistic one: the API runs with a new embedding dimension while the
-# alias still serves the old collection until re-indexing finishes.
+# Any other rejection (5xx, 401/403 for a wrong key, 429, a 400 for a malformed
+# request) means the store cannot serve this search now.
 @pytest.mark.parametrize("status", [400, 401, 403, 409, 422, 429, 500, 503, None])
 def test_rejected_request_is_retrieval_unavailable(status: int | None) -> None:
     with pytest.raises(RetrievalUnavailable) as raised:

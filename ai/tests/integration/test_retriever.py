@@ -56,12 +56,27 @@ def factory(database_url: str) -> Iterator[sessionmaker[Session]]:
     engine.dispose()
 
 
+class ModelIndex(QdrantIndex):
+    """The test index, with the embedding model its collection is named after."""
+
+    def __init__(self, client: QdrantClient, *, alias: str, model: str) -> None:
+        super().__init__(client, alias=alias)
+        self.model = model
+
+
 @pytest.fixture
 def index(client: QdrantClient) -> Iterator[QdrantIndex]:
-    """A live collection behind a unique alias, both dropped after the test."""
+    """A collection of its own (behind a unique alias), dropped after the test.
+
+    The retriever searches the collection its settings name, so the retrievers
+    below are built with this index's model (see ``retriever``).
+    """
     alias = f"test_retriever_{uuid.uuid4().hex[:8]}"
-    idx = QdrantIndex(client, alias=alias)
-    collection = idx.ensure_collection(f"t{uuid.uuid4().hex[:8]}", DIM)
+    idx = ModelIndex(client, alias=alias, model=f"t{uuid.uuid4().hex[:8]}")
+    collection = idx.ensure_collection(
+        settings(embedding_model=idx.model).index_model, DIM
+    )
+    assert collection == settings(embedding_model=idx.model).index_name
     idx.switch_alias(collection)
     yield idx
     client.update_collection_aliases(
@@ -227,6 +242,8 @@ def retriever(
     generator: FakeGenerator | None = None,
     **overrides: object,
 ) -> Retriever:
+    if isinstance(index, ModelIndex):
+        overrides = {"embedding_model": index.model, **overrides}
     return Retriever(
         index=index,
         embedder=embedder or RecordingEmbedder(),
@@ -319,6 +336,7 @@ def test_stale_and_foreign_chunks_are_dropped_after_hydration(
 
     # Precondition: the index alone would hand all three to Alice.
     hits = index.search(
+        collection=index.alias,
         dense=FakeEmbedder(DIM).embed_query(question),
         sparse=encode_query(question),
         flt=build_scope_filter(alice),
@@ -342,10 +360,12 @@ def test_qdrant_down_raises_retrieval_unavailable() -> None:
         )
 
 
-def test_missing_alias_is_an_empty_result(
+def test_missing_collection_is_an_empty_result(
     client: QdrantClient, factory: sessionmaker[Session]
 ) -> None:
-    nothing_indexed = QdrantIndex(client, alias=f"missing_{uuid.uuid4().hex[:8]}")
+    nothing_indexed = ModelIndex(
+        client, alias=f"missing_{uuid.uuid4().hex[:8]}", model=uuid.uuid4().hex[:8]
+    )
     result = retriever(nothing_indexed, factory).retrieve(uuid.uuid4(), "attention")
     assert result == RetrievalResult([], None)
 

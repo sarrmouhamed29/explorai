@@ -135,7 +135,7 @@ def test_ask_over_own_and_public_documents(
 def test_empty_index_is_a_refusal_not_an_error(
     rag_app: FastAPI, client: TestClient
 ) -> None:
-    # Nothing indexed yet: the test alias does not exist in Qdrant.
+    # Nothing indexed yet: the collection of the test settings does not exist.
     login_as(client, "alice@example.org")
 
     response = client.post(ASK, json={"question": ALICE_QUESTION})

@@ -233,6 +233,7 @@ def search_ids(
     index: QdrantIndex, embedder: FakeEmbedder, query: str
 ) -> set[uuid.UUID]:
     hits = index.search(
+        collection=index.alias,
         dense=embedder.embed_query(query),
         sparse=encode_query(query),
         flt=build_scope_filter(uuid.uuid4(), "all"),

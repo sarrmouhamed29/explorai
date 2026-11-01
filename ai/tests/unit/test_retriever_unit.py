@@ -46,6 +46,7 @@ def record(chunk_id: uuid.UUID) -> ChunkRecord:
 
 @dataclass
 class SearchCall:
+    collection: str
     dense: list[float]
     sparse: SparseVector
     flt: Any
@@ -65,6 +66,7 @@ class FakeIndex:
     def search(
         self,
         *,
+        collection: str,
         dense: list[float],
         sparse: SparseVector,
         flt: Any,
@@ -73,7 +75,7 @@ class FakeIndex:
         limit: int,
     ) -> list[ScoredId]:
         self.calls.append(
-            SearchCall(dense, sparse, flt, dense_limit, sparse_limit, limit)
+            SearchCall(collection, dense, sparse, flt, dense_limit, sparse_limit, limit)
         )
         if self.error is not None:
             raise self.error
@@ -217,6 +219,19 @@ def test_queries_are_the_question_plus_distinct_rewrites() -> None:
     assert [c.sparse for c in r.index.calls] == [
         encode_query(t) for t in r.embedder.texts
     ]
+
+
+def test_searches_the_collection_of_its_own_settings_not_the_alias() -> None:
+    # The API never mixes models: it searches the collection its own embedding
+    # model and dimension name, whatever the pipeline's alias points at.
+    r = rig(
+        [[], []],
+        generator=ScriptedGenerator(["attention formula"]),
+        embedding_model="model-x",
+        embedding_dimension=8,
+    )
+    r.retriever.retrieve(USER, QUESTION)
+    assert [c.collection for c in r.index.calls] == ["chunks_fake_model_x_8"] * 2
 
 
 def test_rewriting_disabled_searches_the_question_only() -> None:

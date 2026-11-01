@@ -199,8 +199,9 @@ class ChunkIndexEntry(Base):
     ``index_name`` is the Qdrant collection name, derived from the embedding model
     *and* dimension (``QdrantIndex.collection_name``): changing either one is a new
     index in which every chunk is pending. A chunk without an entry for the
-    current index is pending. The old entries stay in place, so the new
-    collection can be filled in the background while the old one keeps serving.
+    current index is pending. The old entries stay in place, so the pipeline can
+    fill the new collection in the background while an API still configured with
+    the old model keeps serving the old one, until its own settings change.
     """
 
     __tablename__ = "chunk_index_entries"

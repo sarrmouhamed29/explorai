@@ -1,10 +1,15 @@
-"""Qdrant adapter: hybrid (dense + sparse, RRF) search behind an alias.
+"""Qdrant adapter: hybrid (dense + sparse, RRF) search in a named collection.
 
 The only module that talks to Qdrant. Filters are built by ``scope.build_scope_filter``
 and passed in; this module never builds one. Points live in a collection named after
-the embedding model and dimension; the alias ``chunks_current`` points at the
-collection searches use, so a re-index into a new collection goes live with one
-atomic alias switch and no downtime.
+the embedding model and dimension (``RagSettings.index_name``).
+
+A search names its collection explicitly: the API searches the collection of its
+*own* configured model, never whatever another process last pointed an alias at,
+so a query vector is never compared with vectors of another model. The alias
+``chunks_current`` is the indexing pipeline's marker of its complete, live
+collection (moved only once a new collection has caught up; ``prune-index``
+prunes it), not what the API reads.
 """
 
 import logging
@@ -67,6 +72,11 @@ class QdrantIndex:
     def __init__(self, client: QdrantClient, *, alias: str = DEFAULT_ALIAS) -> None:
         self._client = client
         self._alias = alias
+
+    @property
+    def alias(self) -> str:
+        """The pipeline's live-collection alias (also usable as a collection name)."""
+        return self._alias
 
     @staticmethod
     def collection_name(model: str, dimension: int) -> str:
@@ -149,6 +159,7 @@ class QdrantIndex:
     def search(
         self,
         *,
+        collection: str,
         dense: list[float],
         sparse: SparseVector,
         flt: Filter,
@@ -156,14 +167,15 @@ class QdrantIndex:
         sparse_limit: int,
         limit: int,
     ) -> list[ScoredId]:
-        """Dense and sparse candidates fused by Reciprocal Rank Fusion.
+        """Dense and sparse candidates of ``collection``, fused by RRF.
 
         The filter goes on each prefetch (candidates are selected there) and on the
-        fusion stage too, so no candidate can bypass it.
+        fusion stage too, so no candidate can bypass it. A missing collection is
+        an empty corpus (``[]``), any other rejection ``RetrievalUnavailable``.
         """
         try:
             response = self._client.query_points(
-                collection_name=self._alias,
+                collection_name=collection,
                 prefetch=[
                     Prefetch(query=dense, using=DENSE, filter=flt, limit=dense_limit),
                     Prefetch(
@@ -185,13 +197,13 @@ class QdrantIndex:
             raise RetrievalUnavailable("vector store unreachable") from exc
         except UnexpectedResponse as exc:
             if is_missing(exc):
-                # No alias yet (nothing indexed) or it points at a deleted collection:
-                # an empty corpus, not an outage. No query text is logged.
+                # The collection does not exist (nothing indexed for this model
+                # yet, or it was deleted): an empty corpus, not an outage. No
+                # query text is logged.
                 logger.warning("vector store has no searchable collection")
                 return []
-            # Any other answer (5xx, but also 400 "vector dimension error" while
-            # the alias still serves the collection of a previous embedding
-            # dimension, 401/403 for a wrong key, 429...) means the store cannot
+            # Any other answer (5xx, a 400 for a malformed request, 401/403 for
+            # a wrong key, 429...) means the store cannot
             # serve this search now: an outage for the caller (503), never a raw
             # 500. Fixed message and no chained cause: the response body may echo
             # request data, and nothing of it must reach logs or clients.

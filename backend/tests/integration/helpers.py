@@ -219,6 +219,7 @@ def raw_search(
     """
     embedder = FakeEmbedder(dimension=settings.embedding_dimension)
     hits = index.search(
+        collection=settings.index_name,
         dense=embedder.embed_query(question),
         sparse=encode_query(question),
         flt=flt,

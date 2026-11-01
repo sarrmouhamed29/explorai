@@ -63,7 +63,10 @@ def search(
     scope: str = "all",
     branch_limit: int = 10,
 ) -> list[uuid.UUID]:
+    # Through the alias: Qdrant accepts an alias wherever a collection name goes,
+    # which lets these tests cover the missing and dangling alias cases.
     hits = index.search(
+        collection=index.alias,
         dense=dense,
         sparse=encode_query(text),
         flt=build_scope_filter(user, scope),  # type: ignore[arg-type]
@@ -209,6 +212,7 @@ def test_unreachable_qdrant_raises_retrieval_unavailable() -> None:
     index = QdrantIndex(dead)
     with pytest.raises(RetrievalUnavailable):
         index.search(
+            collection="chunks_any_4",
             dense=[1.0, 0.0, 0.0, 0.0],
             sparse=encode_query("anything"),
             flt=build_scope_filter(uuid.uuid4()),

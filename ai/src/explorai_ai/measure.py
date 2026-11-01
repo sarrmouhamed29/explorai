@@ -300,7 +300,7 @@ def _build_real(settings: RagSettings) -> MeasuredPipeline:
         check_compatibility=False,
     )
     index = QdrantIndex(client)
-    if index.alias_target() is None:
+    if not index.collection_exists(settings.index_name):
         raise RuntimeError(
             "the Qdrant index is empty: ingest the annotated papers and run "
             "'index-pending' first (see docs/evaluation/rag-baseline.md)"
