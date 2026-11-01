@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 Kind = Literal["pdf", "html"]
 
+# Advisory lock key for the catch-up: one extraction pass at a time across processes.
+CATCH_UP_LOCK = 4242001
+BLOB_GRACE_SECONDS = 3600.0
+
 
 class Outcome(StrEnum):
     UNCHANGED = "unchanged"
@@ -239,44 +243,74 @@ def reextract(
 ) -> dict[str, int]:
     """Create versions for stored artifacts lacking one for the current extractors.
 
-    Reads only stored bytes: no network. Returns counters by outcome.
+    Reads only stored bytes: no network. Returns counters by outcome plus
+    ``skipped``. Only one process extracts at a time (``CATCH_UP_LOCK``): if
+    another holds the lock this does nothing and returns ``skipped`` = 1. That
+    includes the catch-up at the end of ``run_batch``: a nightly run that starts
+    while ``process-pending`` is extracting simply skips its catch-up, and that
+    process finishes the work.
     """
-    counters = {o.value: 0 for o in Outcome}
-    indexes: dict[uuid.UUID | None, NearDuplicateIndex] = {}
-    for extractor in extractors.values():
-        for ref in repo.artifacts_missing_version(extractor.version):
-            try:
-                data = store.get(ref.storage_key)
-                if ref.owner_id not in indexes:
-                    indexes[ref.owner_id] = _index_from_database(repo, ref.owner_id)
-                if sniff_kind(data, None, ref.url) != extractor.kind:
-                    continue
-                outcome, _ = _process(
-                    repo=repo,
-                    index=indexes[ref.owner_id],
-                    source_id=ref.source_id,
-                    external_id=ref.external_id,
-                    owner_id=ref.owner_id,
-                    item_title=None,
-                    item_metadata=None,
-                    artifact_id=ref.id,
-                    data=data,
-                    url=ref.url,
-                    extractor=extractor,
-                    timeout=settings.extract_timeout_seconds,
-                )
-                # A re-extraction adds a version to an existing document.
-                counters[
-                    Outcome.NEW_VERSION.value
-                    if outcome is Outcome.INGESTED
-                    else outcome.value
-                ] += 1
-            except Exception as error:  # noqa: BLE001 - keep going, count the failure
-                logger.warning(
-                    "re-extraction failed for %s: %s", ref.external_id, error
-                )
-                counters[Outcome.FAILED.value] += 1
-    return counters
+    counters = {o.value: 0 for o in Outcome} | {"skipped": 0}
+    with repo.advisory_lock(CATCH_UP_LOCK) as acquired:
+        if not acquired:
+            counters["skipped"] = 1
+            return counters
+        indexes: dict[uuid.UUID | None, NearDuplicateIndex] = {}
+        for extractor in extractors.values():
+            for ref in repo.artifacts_missing_version(extractor.version):
+                try:
+                    data = store.get(ref.storage_key)
+                    if ref.owner_id not in indexes:
+                        indexes[ref.owner_id] = _index_from_database(repo, ref.owner_id)
+                    if sniff_kind(data, None, ref.url) != extractor.kind:
+                        continue
+                    outcome, _ = _process(
+                        repo=repo,
+                        index=indexes[ref.owner_id],
+                        source_id=ref.source_id,
+                        external_id=ref.external_id,
+                        owner_id=ref.owner_id,
+                        item_title=None,
+                        item_metadata=None,
+                        artifact_id=ref.id,
+                        data=data,
+                        url=ref.url,
+                        extractor=extractor,
+                        timeout=settings.extract_timeout_seconds,
+                    )
+                    # A re-extraction adds a version to an existing document.
+                    counters[
+                        Outcome.NEW_VERSION.value
+                        if outcome is Outcome.INGESTED
+                        else outcome.value
+                    ] += 1
+                except Exception as error:  # noqa: BLE001 - keep going, count the failure
+                    logger.warning(
+                        "re-extraction failed for %s: %s", ref.external_id, error
+                    )
+                    counters[Outcome.FAILED.value] += 1
+        return counters
+
+
+def collect_blobs(
+    repo: Repository, store: BlobStore, grace_seconds: float = BLOB_GRACE_SECONDS
+) -> int:
+    """Delete blobs older than the grace period that no artifact references.
+
+    The API never deletes blobs (under row-level security it cannot see whether
+    another owner's artifact shares one), so unreferenced blobs are collected
+    here. The grace period protects an upload whose rows are not committed yet.
+    The referenced set is read after listing the old keys: a row committed in
+    between protects its blob.
+    """
+    old = store.keys_older_than(grace_seconds)
+    if not old:
+        return 0
+    referenced = repo.referenced_storage_keys()
+    doomed = [key for key in old if key not in referenced]
+    for key in doomed:
+        store.delete(key)
+    return len(doomed)
 
 
 def run_batch(

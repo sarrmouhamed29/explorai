@@ -36,3 +36,29 @@ def test_main_dispatches_to_the_flow(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert cli.main(["ingest-arxiv", "--query", "cat:cs.LG", "--max-results", "3"]) == 0
     assert seen == [("cat:cs.LG", 3)]
+
+
+def test_parser_knows_process_pending() -> None:
+    assert (
+        cli.build_parser().parse_args(["process-pending"]).command == "process-pending"
+    )
+
+
+def test_main_dispatches_process_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(cli, "run_process_pending", lambda: seen.append("ran"))
+
+    assert cli.main(["process-pending"]) == 0
+    assert seen == ["ran"]
+
+
+def test_serve_registers_both_deployments(monkeypatch: pytest.MonkeyPatch) -> None:
+    served: list[object] = []
+    monkeypatch.setattr(
+        cli, "prefect_serve", lambda *deployments: served.extend(deployments)
+    )
+
+    cli.serve()
+
+    names = sorted(d.name for d in served)  # type: ignore[attr-defined]
+    assert names == ["nightly-arxiv", "process-pending"]

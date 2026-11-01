@@ -28,6 +28,14 @@ def session_factory(database_url: str) -> sessionmaker[Session]:
     with engine.begin() as connection:
         # Every other table references sources, so one cascade empties the schema.
         connection.execute(text("TRUNCATE sources CASCADE"))
+        # Migration 0003 seeds the upload source; the truncate removed it.
+        connection.execute(
+            text(
+                "INSERT INTO sources (id, kind, name, config) "
+                "VALUES (gen_random_uuid(), 'upload', 'upload', '{}'::jsonb) "
+                "ON CONFLICT DO NOTHING"
+            )
+        )
     return make_session_factory(engine)
 
 
