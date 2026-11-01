@@ -9,6 +9,9 @@ An ADR records one significant technical choice: the context, the decision, the 
 | [0003](0003-monorepo-independent-services.md) | One repository, independent services |
 | [0004](0004-uv-workspace.md) | uv workspace for Python packaging |
 | [0005](0005-ai-library-independent-of-backend.md) | The `ai/` library does not depend on the backend |
+| [0006](0006-prefect-for-orchestration.md) | Prefect for orchestration and scheduling |
+| [0007](0007-layered-raw-and-normalised-storage.md) | Layered storage: immutable raw artifacts, then versioned text |
+| [0008](0008-shared-db-package.md) | A shared `db/` package owns the schema |
 
 ## Template
 

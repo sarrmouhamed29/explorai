@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+import psycopg
 import pytest
 
 from explorai_backend import db
@@ -23,7 +24,7 @@ async def test_check_postgres_false_on_failure_without_leaking_url(
     caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(db.psycopg.AsyncConnection, "connect", _failing_connect)
+    monkeypatch.setattr(psycopg.AsyncConnection, "connect", _failing_connect)
     with caplog.at_level(logging.DEBUG):
         assert await check_postgres(SECRET_URL_POSTGRES) is False
     captured = capsys.readouterr()

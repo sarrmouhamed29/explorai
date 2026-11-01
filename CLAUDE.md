@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Sub-project 0 (Foundations) is implemented as a walking skeleton: a FastAPI backend (`/health/live`, `/health/ready`), a Vite + React + TypeScript page that shows readiness through a client generated from `backend/openapi.json`, a Docker Compose stack (PostgreSQL with pgvector, Redis, backend, frontend), pre-commit hooks and GitHub Actions CI. There is no business feature yet. Sub-project 1 (Ingestion) is next; `plan.md` is the authoritative master plan and `description.md` is non-binding ideation. Specs and plans live in `docs/superpowers/`; ADRs in `docs/adr/`; concept notes with interview Q&A in `docs/concepts/`.
+Sub-projects 0 (Foundations) and 1 (Ingestion) are implemented. Foundations is a walking skeleton: a FastAPI backend (`/health/live`, `/health/ready`), a Vite + React + TypeScript page that shows readiness through a client generated from `backend/openapi.json`, a Docker Compose stack (PostgreSQL with pgvector, Redis, backend, frontend), pre-commit hooks and GitHub Actions CI. Ingestion adds `db/` (shared SQLAlchemy models and Alembic migrations) and `pipelines/` (arXiv and web sources, SSRF-safe download, PDF/HTML extraction, cleaning, deduplication, Prefect flows with a nightly schedule), plus `migrate`, `prefect` and `pipelines` Compose services; replaying a batch changes nothing, and `docs/evaluation/extraction-baseline.md` holds the measured PDF extraction baseline. There is no user-facing feature yet. Sub-project 2 (Core backend) is next; `plan.md` is the authoritative master plan and `description.md` is non-binding ideation. Specs and plans live in `docs/superpowers/`; ADRs in `docs/adr/`; concept notes with interview Q&A in `docs/concepts/`.
 
 The maintainer converses in French, but all project artifacts (code, comments, docs, commits, PRs, ADRs) are in English. The maintainer is learning and must be able to justify every choice in interviews: explain choices and alternatives, and explain concepts before implementing them.
 
@@ -26,10 +26,21 @@ docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait
 set -a; . infra/.env; set +a
 uv run --package explorai-backend pytest backend/tests -m integration
 
-# Backend lint, format, types (same as CI)
-uv run ruff check backend
-uv run ruff format backend                  # CI runs `ruff format --check backend`
-uv run mypy backend/src backend/tests backend/scripts
+# Python lint, format, types (same as CI)
+uv run ruff check backend db pipelines
+uv run ruff format backend db pipelines     # CI runs `ruff format --check`
+# mypy needs --config-file: run from the root it ignores a package's [tool.mypy]
+uv run mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
+uv run mypy --config-file db/pyproject.toml db/src db/tests
+uv run mypy --config-file pipelines/pyproject.toml pipelines/src pipelines/tests
+
+# db and pipelines: one pytest call per package (own config and 80% gate). Integration tests need
+# DATABASE_URL exported (a PostgreSQL superuser; they create and drop throwaway databases).
+uv run pytest db/tests
+uv run pytest pipelines/tests -m "not integration" --no-cov    # no services
+uv run python -m explorai_db.migrate                           # apply migrations to DATABASE_URL
+uv run python -m explorai_pipelines ingest-arxiv --query cat:cs.CL --max-results 5   # also: ingest-web, reextract, serve
+uv run python -X utf8 -m explorai_pipelines.measure            # PDF extraction quality on the annotated sample
 
 # Frontend
 pnpm --dir frontend test                    # Vitest
@@ -46,6 +57,7 @@ pnpm --dir frontend gen:api                                                   # 
 docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --build --wait
 docker compose --env-file infra/.env -f infra/docker-compose.yml down -v
 bash infra/smoke.sh                         # own Compose project, builds, checks, tears down
+SMOKE_NETWORK=1 bash infra/smoke.sh         # also ingests two real arXiv papers (internet needed)
 
 # Hooks (needs gitleaks v8.30.1, bash and pnpm on PATH)
 uv run pre-commit install --install-hooks   # installs pre-commit and commit-msg hooks
@@ -56,8 +68,8 @@ uv run pre-commit run --all-files
 
 - **Git:** GitFlow. `main` holds tagged releases, `develop` is integration; `feature/*`, `release/*`, `hotfix/*` branches merged by PR with green CI; no direct pushes to `main` or `develop`. Conventional Commits. Remote: `sarrmouhamed29/explorai` on GitHub. Do not change GitHub settings (branch protection, etc.) or push without explicit approval.
 - **Stack:** Python + FastAPI backend, React + TypeScript (Vite) frontend, linked by an OpenAPI contract with a generated, committed client (CI fails on drift). Next.js as backend was rejected (the AI ecosystem is Python).
-- **Target layout:** `backend/` (thin API), `ai/` (library: `rag/`, `agents/`, `ml/`, `safety/`), `evaluation/`, `pipelines/`, `frontend/`, `infra/`, `docs/`, `notebooks/`, `.github/`, root `uv` workspace. Only `backend/`, `frontend/`, `infra/`, `docs/` and `.github/` exist today; add the others when their sub-project starts.
-- **Boundaries:** `ai/` never depends on `backend/`; `evaluation/` and `pipelines/` reuse `ai/` directly, not through the API. Tests live in each package.
+- **Target layout:** `backend/` (thin API), `ai/` (library: `rag/`, `agents/`, `ml/`, `safety/`), `evaluation/`, `pipelines/`, `frontend/`, `infra/`, `docs/`, `notebooks/`, `.github/`, root `uv` workspace. Only `backend/`, `db/`, `pipelines/`, `frontend/`, `infra/`, `docs/` and `.github/` exist today; add the others when their sub-project starts.
+- **Boundaries:** `ai/` never depends on `backend/`; `evaluation/` and `pipelines/` reuse `ai/` directly, not through the API. `pipelines/` and `backend/` share the schema through `db/`, which depends on neither. Tests live in each package.
 - **Cross-cutting:** every sub-project spec has "evaluation criteria" and "threats and guardrails" sections. Evaluation and safety are their own sub-projects, not a final phase.
 - **Documentation is part of done:** a change that alters behaviour, architecture or setup updates its docs in the same PR (READMEs, `docs/adr/`, `docs/concepts/`, specs and plans). Significant technical choices get an ADR.
 - **Tooling:** `uv`, `ruff`, `mypy` strict, `pytest`; `pnpm`, ESLint, Prettier, strict TypeScript, Vitest (TypeScript stays on `^5`: v7 breaks `openapi-typescript`); `pre-commit` (convenience only, CI is the gate); `.env` git-ignored with a versioned `.env.example`; changelog via `git-cliff` (`cliff.toml`), release tags created by hand.

@@ -1,5 +1,9 @@
 # Local development dependencies. Run from the repo root:
 #   docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait
+x-pipelines-build: &pipelines-build
+  context: ..
+  dockerfile: pipelines/Dockerfile
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -59,3 +63,61 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  # One-shot: applies the Alembic migrations, then exits 0.
+  migrate:
+    build: *pipelines-build
+    image: explorai-pipelines:dev
+    command: ["python", "-m", "explorai_db.migrate"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Prefect server from the same image as the flows, so client and server versions
+  # cannot drift. SQLite on a volume: development only.
+  prefect:
+    build: *pipelines-build
+    image: explorai-pipelines:dev
+    command: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
+    ports:
+      - "127.0.0.1:4200:4200"
+    volumes:
+      - prefect-data:/data/prefect
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  pipelines:
+    build: *pipelines-build
+    image: explorai-pipelines:dev
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PREFECT_API_URL: http://prefect:4200/api
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-dev@example.invalid}
+      MAX_DOWNLOAD_BYTES: ${MAX_DOWNLOAD_BYTES:-50000000}
+      EXTRACT_TIMEOUT_SECONDS: ${EXTRACT_TIMEOUT_SECONDS:-60}
+      ARXIV_MIN_INTERVAL_SECONDS: ${ARXIV_MIN_INTERVAL_SECONDS:-3.0}
+    volumes:
+      - blobs:/data/blobs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      prefect:
+        condition: service_healthy
+    healthcheck:
+      # The serving process is useless without the Prefect API, so check that.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://prefect:4200/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  blobs:
+  prefect-data:

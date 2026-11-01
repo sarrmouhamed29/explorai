@@ -73,8 +73,8 @@ Run all hooks on every file at any time with `uv run pre-commit run --all-files`
 
 A change is done when all of the following hold:
 
-1. Tests cover the new behaviour and pass (`pytest` for the backend, which also enforces the 80% coverage gate; Vitest for the frontend).
-2. Lint, format and type checks are green: `ruff check`, `ruff format --check` and `mypy` (strict) for Python; ESLint, Prettier and `tsc` for the frontend.
+1. Tests cover the new behaviour and pass (`pytest` once per Python package: `backend`, `db`, `pipelines`, each enforcing the 80% coverage gate; Vitest for the frontend).
+2. Lint, format and type checks are green: `ruff check`, `ruff format --check` and `mypy` (strict) for Python (mypy is run once per package with `--config-file <package>/pyproject.toml`, otherwise it ignores the package's strict settings); ESLint, Prettier and `tsc` for the frontend.
 3. If the API changed, `backend/openapi.json` and `frontend/src/api/schema.d.ts` are regenerated and committed (see below). CI fails on drift.
 4. Documentation is updated in the same pull request: package READMEs, the root README, `docs/concepts/`, and a new ADR in `docs/adr/` for any significant technical choice.
 5. Every new sub-project spec contains an "evaluation criteria" section (how we know it works) and a "threats and guardrails" section (what can go wrong and how we protect against it).

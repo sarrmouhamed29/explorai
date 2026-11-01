@@ -1,0 +1,46 @@
+[project]
+name = "explorai-db"
+version = "0.1.0"
+description = "Explorai database schema and migrations"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy",
+    "alembic",
+    "psycopg[binary]",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/explorai_db"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib --cov=explorai_db --cov-fail-under=80"
+markers = [
+    "integration: tests that need a real PostgreSQL (DATABASE_URL)",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = ["src/explorai_db/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "C4", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["explorai_db"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"

@@ -1,0 +1,14 @@
+{
+  "order_pairs": [
+    ["Source timelines. We use the clinical timelines of MedTempo", "Hypotheses. The hypotheses come from 26 template groups"],
+    ["Hypotheses. The hypotheses come from 26 template groups", "Gold labels. Labels are computed mechanically"],
+    ["Gold labels. Labels are computed mechanically", "conservative bound on the exact Poisson-binomial test"],
+    ["conservative bound on the exact Poisson-binomial test", "Validation. Before shipping, every group cleared a permutation null"],
+    ["Validation. Before shipping, every group cleared a permutation null", "Release. The benchmark ships (Table 2) a 1,500-hypothesis test set"],
+    ["Release. The benchmark ships (Table 2) a 1,500-hypothesis test set", "Art produces the scored outputs of Section 3.1 in three stages"]
+  ],
+  "repeated_lines": [
+    "He et al.",
+    "Testimony from Timelines: Evidence-Grounded Significance Testing of Temporal Clinical Hypotheses"
+  ]
+}

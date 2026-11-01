@@ -41,3 +41,35 @@ check() {
 check "backend readiness" "http://127.0.0.1:8000/health/ready"
 check "frontend serves index" "http://127.0.0.1:5173/"
 check "frontend proxies /health/ready to backend" "http://127.0.0.1:5173/health/ready"
+
+# --- ingestion stack -------------------------------------------------------
+set -a; . infra/.env; set +a
+
+migrate_exit="$(docker inspect -f '{{.State.ExitCode}}' "$(compose ps -a -q migrate)")"
+if [ "$migrate_exit" != "0" ]; then
+  echo "FAIL: migrate exited with $migrate_exit, expected 0" >&2
+  exit 1
+fi
+echo "PASS: migrations applied"
+
+table="$(compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select to_regclass('public.sources')")"
+if [ "$table" != "sources" ]; then
+  echo "FAIL: table sources missing after migration (got '${table}')" >&2
+  exit 1
+fi
+echo "PASS: schema present"
+
+check "prefect server health" "http://127.0.0.1:4200/api/health"
+
+# The pipelines container is waited on by `up --wait` through its healthcheck.
+# A real arXiv batch needs outbound network access, so it is opt-in: CI leaves
+# SMOKE_NETWORK unset to stay independent of a third-party API.
+if [ "${SMOKE_NETWORK:-0}" = "1" ]; then
+  compose exec -T pipelines python -m explorai_pipelines ingest-arxiv --query "cat:cs.CL" --max-results 2
+  versions="$(compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select count(*) from document_versions where status = 'ok'")"
+  if [ "${versions:-0}" -lt 1 ]; then
+    echo "FAIL: no ingested document version after the arXiv batch" >&2
+    exit 1
+  fi
+  echo "PASS: arXiv batch ingested ($versions versions)"
+fi

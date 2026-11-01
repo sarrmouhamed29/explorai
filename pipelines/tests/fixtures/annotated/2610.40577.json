@@ -1,0 +1,11 @@
+{
+  "order_pairs": [
+    ["Multi-representation and latent-space MoE.", "Multi-View MoE uses K projections of the full hidden state"],
+    ["Multi-View MoE uses K projections of the full hidden state", "pert receives. Prior analyses relate hidden-state geometry"],
+    ["The backbone up-projects this aggregation", "Multi-View retains the shared expert pool"],
+    ["Multi-View retains the shared expert pool", "Multi-Router uses R routing heads"]
+  ],
+  "repeated_lines": [
+    "Multi-View MoE Oct 28, 2026"
+  ]
+}

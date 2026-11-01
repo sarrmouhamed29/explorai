@@ -1,2 +1,7 @@
 [tool.uv.workspace]
-members = ["backend"]
+members = ["backend", "db", "pipelines"]
+
+[tool.uv]
+# Prefect 3.8.x server code calls Body(min_items=...), which FastAPI removed in
+# 0.155. Prefect itself requires fastapi>=0.139; keep the shared lock below the break.
+constraint-dependencies = ["fastapi<0.154"]

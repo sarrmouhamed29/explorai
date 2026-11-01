@@ -60,11 +60,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen
-      - run: uv run ruff check backend
-      - run: uv run ruff format --check backend
-      - run: uv run mypy backend/src backend/tests backend/scripts
-      # Full suite, integration tests included; the 80% coverage gate lives in pyproject addopts.
+      - run: uv run ruff check backend db pipelines
+      - run: uv run ruff format --check backend db pipelines
+      # mypy picks no config from a package when run from the root: pass each one.
+      - run: uv run mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
+      - run: uv run mypy --config-file db/pyproject.toml db/src db/tests
+      - run: uv run mypy --config-file pipelines/pyproject.toml pipelines/src pipelines/tests
+      # One pytest call per package: each has its own config and 80% coverage gate,
+      # and the integration tests of all three use the PostgreSQL service above.
       - run: uv run pytest backend/tests
+      - run: uv run pytest db/tests
+      - run: uv run pytest pipelines/tests
 
   frontend:
     name: frontend
