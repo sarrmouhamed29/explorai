@@ -17,12 +17,22 @@ arXiv / web        allowlist,      blob store +     PDF/HTML     text        exa
 - `clean.py`, `dedup.py`: pure text functions.
 - `repository.py`: the only module that writes to the database, one transaction per call.
 - `ingest.py`: one document's journey (`ingest_item`), batches (`run_batch`) and replays (`reextract`). No Prefect imports.
-- `flows/`: thin Prefect flows around `ingest.py`; `__main__.py` is the command line.
+- `flows/`: thin Prefect flows around `ingest.py` and `indexing.py`; `__main__.py` is the command line.
+- `indexing.py`: chunks, embeds and indexes the searchable versions into Qdrant, and prunes stale points (uses the `explorai-ai` library: chunking, sparse encoder, providers, `QdrantIndex`). No Prefect imports.
 - `measure.py`: extraction quality on the annotated sample.
 
-Uploaded private PDFs are processed here too: the `process-pending` deployment (every 30 seconds, `python -m explorai_pipelines process-pending` for one run) calls the same catch-up code (`reextract`) with `only_unversioned=True`: it reads only artifacts that have no version at all (`Repository.artifacts_without_any_version`), so a pass over a processed corpus reads no blob. Extractor version upgrades are left to the catch-up at the end of each nightly batch and to the manual `reextract` command, which read every artifact missing a version of a current extractor. Either way `reextract` takes the advisory lock `CATCH_UP_LOCK` (`pg_try_advisory_lock`, session level, non-blocking) so the nightly batch and `process-pending` never extract at the same time; a run that does not get the lock reports `skipped` and moves on. It then runs `collect_blobs`, which deletes blobs that no artifact references and that are older than one hour (`BLOB_GRACE_SECONDS`): the API never deletes blobs, and the grace period protects an upload whose rows are not committed yet. `serve` runs two deployments: `nightly-arxiv` and `process-pending`. The concepts are in `docs/concepts/02-core-backend.md`.
+Uploaded private PDFs are processed here too: the `process-pending` deployment (every 30 seconds, `python -m explorai_pipelines process-pending` for one run) calls the same catch-up code (`reextract`) with `only_unversioned=True`: it reads only artifacts that have no version at all (`Repository.artifacts_without_any_version`), so a pass over a processed corpus reads no blob. Extractor version upgrades are left to the catch-up at the end of each nightly batch and to the manual `reextract` command, which read every artifact missing a version of a current extractor. Either way `reextract` takes the advisory lock `CATCH_UP_LOCK` (`pg_try_advisory_lock`, session level, non-blocking) so the nightly batch and `process-pending` never extract at the same time; a run that does not get the lock reports `skipped` and moves on. It then runs `collect_blobs`, which deletes blobs that no artifact references and that are older than one hour (`BLOB_GRACE_SECONDS`): the API never deletes blobs, and the grace period protects an upload whose rows are not committed yet. `serve` runs `nightly-arxiv` and `process-pending`, plus `index-pending` and `prune-index` when `RAG_PROVIDER` is set (see below). The concepts are in `docs/concepts/02-core-backend.md`.
 
 Replaying a batch changes nothing. A changed source file creates a new version of the same document. A new extractor version creates new versions from the stored bytes, with no network. Every batch also finishes what earlier runs left half-done: stored artifacts without a version for the current extractor are extracted at the end of the run (`recovered` in the run counters), so an item that dropped out of the latest listing is not lost. The title and metadata given by the source (arXiv API) win over the title found in the file.
+
+## Indexing for retrieval
+
+The vector index is derived data: PostgreSQL decides what is searchable, Qdrant only holds vectors under the chunk ids, so the index can always be rebuilt. "Searchable" is one rule, `explorai_ai.store.is_eligible_version` (the latest `ok` version of a document, and only when it is canonical, `duplicate_of IS NULL`); every indexing query of `Repository` is built on it, and an integration test checks that the pipeline and the API's `ChunkStore` select exactly the same chunks.
+
+- `index-pending` (every 30 seconds, advisory lock `INDEX_LOCK = 4242002`): cuts eligible versions that have no `chunked_at` yet into chunks (a version with zero chunks is still marked, so it is not chunked again), then embeds the chunks that have no `chunk_index_entries` row for the configured embedding model, in batches of `RAG_EMBED_BATCH_SIZE`, upserts them into the collection of that model and dimension (dense vector from the provider, sparse vector computed locally, payload `owner_id` = the user id or `"public"`, `document_id`, `version_id`, no text) and records the entries after the upsert. A pass is idempotent: the point id is the chunk id and an entry is recorded once. A provider error stops the pass cleanly (`embedding_failed` = 1 in the counters, a warning with counts only): what was embedded is kept, the rest stays pending for the next pass. Only after a pass that leaves nothing pending does the alias `chunks_current` move to the current collection, so a model change fills a new collection in the background while searches keep using the old one, then switches atomically.
+- `prune-index` (hourly, advisory lock `PRUNE_LOCK = 4242003`): deletes, in batches of 500, the points of the collection behind the alias whose chunk is no longer eligible (an older version, a duplicate, a deleted document). Point ids are listed before the eligible ids are read, so a point indexed during the prune is never deleted by it. Until then a stale point is harmless: the API re-reads every hit from PostgreSQL under Row-Level Security and the same eligibility rule, and drops it.
+
+A run that does not get its lock does nothing and reports `skipped` = 1. Both commands need the RAG settings (`RAG_PROVIDER`, `QDRANT_URL`, `QDRANT_API_KEY`, see `ai/README.md`; passed to the Compose service in a later task). Without `RAG_PROVIDER`, `index-pending` and `prune-index` exit with a message naming the variable, and `serve` logs a warning and serves only the ingestion deployments.
 
 ## Configuration
 
@@ -56,6 +66,8 @@ uv run python -m explorai_pipelines ingest-arxiv --query "cat:cs.CL" --max-resul
 uv run python -m explorai_pipelines ingest-web https://example.org/some-page
 uv run python -m explorai_pipelines reextract --version pdf-2     # after bumping an extractor version
 uv run python -m explorai_pipelines process-pending               # one pass over uploads, then blob cleanup
+uv run python -m explorai_pipelines index-pending                 # one indexing pass (needs RAG_PROVIDER and Qdrant)
+uv run python -m explorai_pipelines prune-index                   # delete stale points from the live collection
 ```
 
 Inside the stack: `docker compose --env-file infra/.env -f infra/docker-compose.yml exec pipelines python -m explorai_pipelines ingest-arxiv --query cat:cs.CL --max-results 2`.
@@ -66,7 +78,7 @@ Inside the stack: `docker compose --env-file infra/.env -f infra/docker-compose.
 
 ```bash
 uv run pytest pipelines/tests -m "not integration" --no-cov   # no services; includes a few seconds of PDF work
-uv run pytest pipelines/tests                                  # needs DATABASE_URL (superuser), runs a temporary Prefect API
+uv run pytest pipelines/tests                                  # needs DATABASE_URL (superuser) and QDRANT_URL, runs a temporary Prefect API
 uv run ruff check pipelines && uv run ruff format --check pipelines
 uv run mypy --config-file pipelines/pyproject.toml pipelines/src pipelines/tests
 ```

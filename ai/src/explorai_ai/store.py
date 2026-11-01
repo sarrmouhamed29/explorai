@@ -65,8 +65,8 @@ def is_eligible_version(version: VersionEntity) -> ColumnElement[bool]:
     when it is canonical (``duplicate_of IS NULL``). A document whose latest
     ``ok`` version is a duplicate has no eligible version at all; its older
     versions are not eligible either, because they are not the latest. The
-    indexing pipeline (Task 6) re-implements this rule in its repository and a
-    test checks that both select the same versions.
+    indexing pipeline's repository builds its queries on this same function, and
+    an integration test there checks that both sides select the same chunks.
     """
     return and_(is_latest_ok_version(version), version.duplicate_of.is_(None))
 
