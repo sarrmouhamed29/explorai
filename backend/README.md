@@ -32,7 +32,7 @@ Sessions live in Redis as `session:<sha256(token)>` (the raw token is never stor
 | `POST /documents?filename=paper.pdf` | raw PDF body with `Content-Type: application/pdf`; 202 with the new document (`processing`), 200 with the existing one if you already uploaded the same bytes; 409 quota reached; 413 too large; 415 not a PDF; 429 too many uploads |
 | `DELETE /documents/{id}` | 204; 404; 403 for a public document |
 
-State-changing requests from a browser must carry an `Origin` header listed in `ALLOWED_ORIGINS` (403 otherwise); `curl` sends none, but the examples below set it as the frontend would.
+On state-changing requests an `Origin` header, when present, must be listed in `ALLOWED_ORIGINS` (403 otherwise); requests without one (curl, server-to-server) pass, and browsers always send it on cross-site writes. The examples below set it as the frontend would.
 
 ### Try it with curl
 
