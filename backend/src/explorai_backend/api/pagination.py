@@ -12,6 +12,8 @@ import json
 import uuid
 from datetime import datetime
 
+MAX_ORDINAL = 2**31 - 1  # sections.ordinal is a 32-bit integer
+
 
 def _pack(payload: dict[str, str | int]) -> str:
     raw = json.dumps(payload, separators=(",", ":")).encode()
@@ -52,6 +54,10 @@ def encode_ordinal_cursor(ordinal: int) -> str:
 
 def decode_ordinal_cursor(cursor: str) -> int:
     ordinal = _unpack(cursor).get("o")
+    # Bounded to the 32-bit column: a forged huge value would otherwise reach
+    # PostgreSQL and come back as an unhandled DataError (500).
     if not isinstance(ordinal, int) or isinstance(ordinal, bool):
+        raise ValueError("invalid cursor")
+    if not 0 <= ordinal <= MAX_ORDINAL:
         raise ValueError("invalid cursor")
     return ordinal

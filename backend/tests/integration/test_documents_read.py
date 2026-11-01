@@ -1,5 +1,7 @@
 """Reading documents: scopes, keyset pagination, status, sections, isolation."""
 
+import base64
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -314,3 +316,123 @@ def test_routes_require_login(client: TestClient) -> None:
         f"/api/v1/documents/{some_id}/sections",
     ):
         assert client.get(path).status_code == 401
+
+
+def add_version(
+    factory: sessionmaker[Session],
+    document_id: uuid.UUID,
+    status: str,
+    created_at: datetime,
+    *,
+    texts: tuple[str, ...] = (),
+    version_id: uuid.UUID | None = None,
+) -> uuid.UUID:
+    """Add one more version (own artifact) to an existing document."""
+    with factory.begin() as session:
+        document = session.get_one(Document, document_id)
+        artifact = RawArtifact(
+            source_id=document.source_id,
+            external_id=document.external_id,
+            url="u",
+            sha256=uuid.uuid4().hex * 2,
+            storage_key="k",
+            owner_id=document.owner_id,
+        )
+        session.add(artifact)
+        session.flush()
+        version = DocumentVersion(
+            document_id=document_id,
+            artifact_id=artifact.id,
+            extractor_version=f"v-{uuid.uuid4().hex[:8]}",
+            status=status,
+            created_at=created_at,
+        )
+        if version_id is not None:
+            version.id = version_id
+        session.add(version)
+        session.flush()
+        for ordinal, text in enumerate(texts):
+            session.add(
+                Section(version_id=version.id, ordinal=ordinal, heading=None, text=text)
+            )
+        return version.id
+
+
+def status_of(client: TestClient, document_id: uuid.UUID) -> str:
+    response = client.get(f"/api/v1/documents/{document_id}")
+    assert response.status_code == 200
+    return str(response.json()["status"])
+
+
+def test_latest_version_decides_status(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    user = login_as(client, "alice@example.org")
+    recovered = add_document(session_factory, user, title="r", created_at=BASE)
+    add_version(session_factory, recovered, "unextractable", BASE)
+    add_version(
+        session_factory, recovered, "ok", BASE + timedelta(hours=1), texts=("a",)
+    )
+    assert status_of(client, recovered) == "ready"
+
+    regressed = add_document(session_factory, user, title="g", created_at=BASE)
+    add_version(session_factory, regressed, "ok", BASE, texts=("old",))
+    add_version(session_factory, regressed, "unextractable", BASE + timedelta(hours=1))
+    # The newest version failed, so the document is failed (spec behaviour)...
+    assert status_of(client, regressed) == "failed"
+    # ...yet its sections still come from the older ok version.
+    response = client.get(f"/api/v1/documents/{regressed}/sections")
+    assert response.status_code == 200
+    assert [s["text"] for s in response.json()["items"]] == ["old"]
+
+
+def test_sections_come_from_the_newest_ok_version(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    user = login_as(client, "alice@example.org")
+    document = add_document(session_factory, user, title="d", created_at=BASE)
+    add_version(session_factory, document, "ok", BASE, texts=("old 0", "old 1"))
+    add_version(
+        session_factory, document, "ok", BASE + timedelta(hours=1), texts=("new 0",)
+    )
+    add_version(session_factory, document, "failed", BASE + timedelta(hours=2))
+    response = client.get(f"/api/v1/documents/{document}/sections")
+    assert [s["text"] for s in response.json()["items"]] == ["new 0"]
+
+
+def test_equal_version_timestamps_resolve_by_id_descending(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    user = login_as(client, "alice@example.org")
+    low = uuid.UUID(int=1)
+    high = uuid.UUID(int=2)
+    failed_wins = add_document(session_factory, user, title="f", created_at=BASE)
+    add_version(session_factory, failed_wins, "ok", BASE, version_id=low, texts=("x",))
+    add_version(session_factory, failed_wins, "failed", BASE, version_id=high)
+    assert status_of(client, failed_wins) == "failed"
+
+    low = uuid.UUID(int=3)
+    high = uuid.UUID(int=4)
+    ok_wins = add_document(session_factory, user, title="o", created_at=BASE)
+    add_version(session_factory, ok_wins, "failed", BASE, version_id=low)
+    add_version(session_factory, ok_wins, "ok", BASE, version_id=high, texts=("x",))
+    assert status_of(client, ok_wins) == "ready"
+
+    low = uuid.UUID(int=5)
+    high = uuid.UUID(int=6)
+    both_ok = add_document(session_factory, user, title="b", created_at=BASE)
+    add_version(session_factory, both_ok, "ok", BASE, version_id=low, texts=("low",))
+    add_version(session_factory, both_ok, "ok", BASE, version_id=high, texts=("high",))
+    response = client.get(f"/api/v1/documents/{both_ok}/sections")
+    assert [s["text"] for s in response.json()["items"]] == ["high"]
+
+
+@pytest.mark.parametrize("ordinal", [2**31, 10**30, -1])
+def test_forged_ordinal_cursor_is_422(client: TestClient, ordinal: int) -> None:
+    login_as(client, "alice@example.org")
+    cursor = base64.urlsafe_b64encode(json.dumps({"o": ordinal}).encode()).decode()
+    response = client.get(
+        f"/api/v1/documents/{uuid.uuid4()}/sections", params={"cursor": cursor}
+    )
+    assert response.status_code == 422
+    assert response.json() == {"detail": "invalid cursor"}

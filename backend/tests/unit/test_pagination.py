@@ -46,8 +46,22 @@ def test_garbage_cursor_is_rejected(garbage: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "garbage", ["", "e30", _b64('{"o": "3"}'), _b64('{"o": true}')]
+    "garbage",
+    [
+        "",
+        "e30",
+        _b64('{"o": "3"}'),
+        _b64('{"o": true}'),
+        _b64('{"o": -1}'),
+        _b64('{"o": 2147483648}'),
+        _b64('{"o": 1000000000000000000000000000000}'),
+    ],
 )
 def test_garbage_ordinal_cursor_is_rejected(garbage: str) -> None:
     with pytest.raises(ValueError):
         decode_ordinal_cursor(garbage)
+
+
+def test_ordinal_bounds_are_accepted() -> None:
+    assert decode_ordinal_cursor(encode_ordinal_cursor(0)) == 0
+    assert decode_ordinal_cursor(encode_ordinal_cursor(2**31 - 1)) == 2**31 - 1
