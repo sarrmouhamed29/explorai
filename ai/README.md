@@ -90,6 +90,7 @@ The real run needs the keys, `DATABASE_URL` and a populated public index, costs 
 
 ## Known limits
 
+- Sparse IDF is shared across tenants (Qdrant's `Modifier.IDF` counts document frequencies over the whole collection, whatever the owner filter): a confirmed low-bandwidth channel through which a user with a crafted document of more than 30 near-identical chunks can learn, about one bit per few questions, whether another tenant or the public corpus contains a term; no text leaks. With reranking disabled it leaks more directly. Mitigation planned in the safety sub-project (client-side per-tenant IDF, no IDF, or per-tenant collections or shard keys); see ADR 0011.
 - The quote returned is the model's text, matched after NFKC and case folding, not the source's exact span; the check proves the quote is in the chunk, not that it supports the claim; when citations are dropped, the `[n]` markers of sources left without a verified citation are removed from the answer text, but the claims they followed stay (ADR 0013).
 - The quote floor counts whitespace-separated words, so a CJK quote without spaces never verifies. Short quotes ("42%") are refused.
 - The sparse tokenizer drops every combining mark (over-folding Japanese dakuten, Thai and Indic signs) and makes a CJK run one token; folding depends on the Python `unicodedata` version; tokens are hashed to 32 bits (rare collisions); there is no BM25 length normalisation.
