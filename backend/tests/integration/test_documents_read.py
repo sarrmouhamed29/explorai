@@ -9,85 +9,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from explorai_db.models import Document, DocumentVersion, RawArtifact, Section, Source
+from integration.helpers import add_document, add_version, login_as, login_as_existing
 
 pytestmark = pytest.mark.integration
 
-PASSWORD = "correct horse battery staple"
 BASE = datetime(2026, 1, 1, tzinfo=UTC)
-
-
-def login_as(client: TestClient, email: str) -> uuid.UUID:
-    """Create the account (first time) and log in; return its user id."""
-    response = client.post(
-        "/api/v1/auth/signup", json={"email": email, "password": PASSWORD}
-    )
-    assert response.status_code == 201, response.text
-    user_id = uuid.UUID(response.json()["id"])
-    client.cookies.clear()
-    login = client.post(
-        "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
-    )
-    assert login.status_code == 204, login.text
-    return user_id
-
-
-def add_document(
-    factory: sessionmaker[Session],
-    owner: uuid.UUID | None,
-    *,
-    title: str,
-    created_at: datetime,
-    status: str | None = None,
-    sections: int = 0,
-    kind: str = "arxiv",
-) -> uuid.UUID:
-    """Insert as the table owner (no RLS); status None means no version yet."""
-    with factory.begin() as session:
-        source = session.query(Source).filter_by(kind=kind, name="t").one_or_none()
-        if source is None:
-            source = Source(kind=kind, name="t", config={})
-            session.add(source)
-            session.flush()
-        external_id = str(uuid.uuid4())
-        document = Document(
-            source_id=source.id,
-            external_id=external_id,
-            title=title,
-            owner_id=owner,
-            created_at=created_at,
-        )
-        session.add(document)
-        session.flush()
-        if status is not None:
-            artifact = RawArtifact(
-                source_id=source.id,
-                external_id=external_id,
-                url="u",
-                sha256=uuid.uuid4().hex * 2,
-                storage_key="k",
-                owner_id=owner,
-            )
-            session.add(artifact)
-            session.flush()
-            version = DocumentVersion(
-                document_id=document.id,
-                artifact_id=artifact.id,
-                extractor_version="v1",
-                status=status,
-            )
-            session.add(version)
-            session.flush()
-            for ordinal in range(sections):
-                session.add(
-                    Section(
-                        version_id=version.id,
-                        ordinal=ordinal,
-                        heading=f"h{ordinal}",
-                        text=f"text {ordinal}",
-                    )
-                )
-        return document.id
 
 
 def ids(response_json: dict[str, object]) -> list[str]:
@@ -114,7 +40,8 @@ def test_list_scopes(
         params = {} if scope is None else {"scope": scope}
         response = client.get("/api/v1/documents", params=params)
         assert response.status_code == 200, response.text
-        return response.json()
+        body: dict[str, object] = response.json()
+        return body
 
     assert ids(listed("mine")) == [str(mine)]
     assert ids(listed("public")) == [str(public)]
@@ -124,14 +51,6 @@ def test_list_scopes(
     owned = {item["id"]: item["owned"] for item in listed("all")["items"]}  # type: ignore[attr-defined]
     assert owned == {str(mine): True, str(public): False}
     assert client.get("/api/v1/documents", params={"scope": "bogus"}).status_code == 422
-
-
-def login_as_existing(client: TestClient, email: str) -> None:
-    client.cookies.clear()
-    response = client.post(
-        "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
-    )
-    assert response.status_code == 204, response.text
 
 
 def test_pagination_is_stable_when_documents_are_added(
@@ -316,46 +235,6 @@ def test_routes_require_login(client: TestClient) -> None:
         f"/api/v1/documents/{some_id}/sections",
     ):
         assert client.get(path).status_code == 401
-
-
-def add_version(
-    factory: sessionmaker[Session],
-    document_id: uuid.UUID,
-    status: str,
-    created_at: datetime,
-    *,
-    texts: tuple[str, ...] = (),
-    version_id: uuid.UUID | None = None,
-) -> uuid.UUID:
-    """Add one more version (own artifact) to an existing document."""
-    with factory.begin() as session:
-        document = session.get_one(Document, document_id)
-        artifact = RawArtifact(
-            source_id=document.source_id,
-            external_id=document.external_id,
-            url="u",
-            sha256=uuid.uuid4().hex * 2,
-            storage_key="k",
-            owner_id=document.owner_id,
-        )
-        session.add(artifact)
-        session.flush()
-        version = DocumentVersion(
-            document_id=document_id,
-            artifact_id=artifact.id,
-            extractor_version=f"v-{uuid.uuid4().hex[:8]}",
-            status=status,
-            created_at=created_at,
-        )
-        if version_id is not None:
-            version.id = version_id
-        session.add(version)
-        session.flush()
-        for ordinal, text in enumerate(texts):
-            session.add(
-                Section(version_id=version.id, ordinal=ordinal, heading=None, text=text)
-            )
-        return version.id
 
 
 def status_of(client: TestClient, document_id: uuid.UUID) -> str:

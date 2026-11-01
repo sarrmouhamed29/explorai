@@ -85,7 +85,15 @@ export interface paths {
         /** List Documents */
         get: operations["list_documents_api_v1_documents_get"];
         put?: never;
-        post?: never;
+        /**
+         * Upload Document
+         * @description Upload a private PDF as the raw request body (``Content-Type`` is ignored).
+         *
+         *     ``filename`` only gives the title. The answer is ``202`` with the new
+         *     document, still ``processing``, or ``200`` with the existing one when this
+         *     user already uploaded the same bytes.
+         */
+        post: operations["upload_document_api_v1_documents_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -103,7 +111,11 @@ export interface paths {
         get: operations["get_document_api_v1_documents__document_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Document
+         * @description Delete one of your documents; its stored file is collected later.
+         */
+        delete: operations["delete_document_api_v1_documents__document_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -463,6 +475,99 @@ export interface operations {
             };
         };
     };
+    upload_document_api_v1_documents_post: {
+        parameters: {
+            query?: {
+                filename?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/pdf": string;
+            };
+        };
+        responses: {
+            /** @description Already uploaded by this user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentOut"];
+                };
+            };
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentOut"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Origin not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Document quota reached */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not a PDF */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too many uploads */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session store, rate limiter or database unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_document_api_v1_documents__document_id__get: {
         parameters: {
             query?: never;
@@ -482,6 +587,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DocumentOut"];
                 };
+            };
+            /** @description Not found, or owned by someone else */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_document_api_v1_documents__document_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Public document, or origin not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not found, or owned by someone else */
             404: {

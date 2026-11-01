@@ -510,9 +510,151 @@
         "tags": [
           "documents"
         ]
+      },
+      "post": {
+        "description": "Upload a private PDF as the raw request body (``Content-Type`` is ignored).\n\n``filename`` only gives the title. The answer is ``202`` with the new\ndocument, still ``processing``, or ``200`` with the existing one when this\nuser already uploaded the same bytes.",
+        "operationId": "upload_document_api_v1_documents_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "filename",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filename"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentOut"
+                }
+              }
+            },
+            "description": "Already uploaded by this user"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Origin not allowed"
+          },
+          "409": {
+            "description": "Document quota reached"
+          },
+          "413": {
+            "description": "Upload too large"
+          },
+          "415": {
+            "description": "Not a PDF"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many uploads"
+          },
+          "503": {
+            "description": "Session store, rate limiter or database unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Upload Document",
+        "tags": [
+          "documents"
+        ]
       }
     },
     "/api/v1/documents/{document_id}": {
+      "delete": {
+        "description": "Delete one of your documents; its stored file is collected later.",
+        "operationId": "delete_document_api_v1_documents__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Public document, or origin not allowed"
+          },
+          "404": {
+            "description": "Not found, or owned by someone else"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Delete Document",
+        "tags": [
+          "documents"
+        ]
+      },
       "get": {
         "operationId": "get_document_api_v1_documents__document_id__get",
         "parameters": [
