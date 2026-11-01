@@ -7,6 +7,7 @@ request, results carry the input `index`).
 """
 
 import logging
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -50,6 +51,17 @@ def _post(
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise ProviderError("voyage returned an unexpected response shape")
     return payload
+
+
+def _finite(value: Any) -> float:
+    """A JSON number as a finite float; anything else is a provider error."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+    ):
+        raise ProviderError("voyage returned a malformed vector value")
+    return float(value)
 
 
 def _ordered(items: list[Any], expected: int) -> list[dict[str, Any]]:
@@ -108,7 +120,7 @@ class VoyageEmbedder:
             vector = item.get("embedding")
             if not isinstance(vector, list) or len(vector) != self.dimension:
                 raise ProviderError("voyage returned a vector of the wrong dimension")
-            vectors.append([float(value) for value in vector])
+            vectors.append([_finite(value) for value in vector])
         return vectors
 
 
@@ -138,6 +150,7 @@ class VoyageReranker:
             lambda: _post(self._client, RERANK_URL, self._api_key, body)
         )
         hits: list[RerankHit] = []
+        seen: set[int] = set()
         for item in payload["data"]:
             index = item.get("index") if isinstance(item, dict) else None
             score = item.get("relevance_score") if isinstance(item, dict) else None
@@ -145,9 +158,13 @@ class VoyageReranker:
                 not isinstance(index, int)
                 or isinstance(index, bool)
                 or not 0 <= index < len(documents)
+                or index in seen
+                or isinstance(score, bool)
                 or not isinstance(score, int | float)
+                or not math.isfinite(score)
             ):
                 raise ProviderError("voyage returned a malformed rerank result")
+            seen.add(index)
             hits.append(RerankHit(index=index, score=float(score)))
         hits.sort(key=lambda hit: hit.score, reverse=True)
         return hits[:top_k]

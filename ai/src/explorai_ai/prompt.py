@@ -7,6 +7,7 @@ one impossible, which is why answers are also validated against the sources.
 """
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from typing import Any
 
@@ -71,8 +72,13 @@ ANSWER_TOOL: dict[str, Any] = {
     },
 }
 
+MAX_SOURCE_CHARS = 8000
+MAX_QUESTION_CHARS = 2000
+TRUNCATED_MARKER = "[truncated]"
+
 _LEFT = chr(0x2039)  # single left-pointing angle quotation mark
 _RIGHT = chr(0x203A)  # single right-pointing angle quotation mark
+_EQUALS = chr(0xFF1D)  # fullwidth equals sign
 # Any tag-like run that opens or closes <source> or <question>, tolerating spaces
 # (`< /source>`), case (`</SOURCE >`) and attributes (`<source number="9">`).
 _TAG = re.compile(r"<\s*/?\s*(?:source|question)[^<>]*>?", re.IGNORECASE)
@@ -86,16 +92,38 @@ def neutralise(text: str) -> str:
 
 
 def _attribute(value: str | None) -> str:
-    return neutralise(value or "").replace('"', "'")
+    """Make a title or heading safe inside a double-quoted attribute, on one line."""
+    cleaned = neutralise(value or "")
+    cleaned = cleaned.replace('"', "'").replace("<", _LEFT).replace(">", _RIGHT)
+    cleaned = cleaned.replace("=", _EQUALS)  # no fake `name=value` pairs
+    # Newlines, tabs and other control characters become single spaces.
+    cleaned = "".join(" " if unicodedata.category(c) == "Cc" else c for c in cleaned)
+    return " ".join(cleaned.split())
+
+
+def _cap(text: str, limit: int) -> tuple[str, bool]:
+    """Cut text to at most `limit` characters, at a word boundary when possible."""
+    if len(text) <= limit:
+        return text, False
+    head = text[:limit]
+    boundary = head.rfind(" ")
+    if boundary > limit // 2:
+        head = head[:boundary]
+    return head.rstrip(), True
 
 
 def build_user_message(question: str, sources: Sequence[PromptSource]) -> str:
-    parts = [
-        f'<source number="{source.number}" title="{_attribute(source.title)}" '
-        f'section="{_attribute(source.heading)}">\n'
-        f"[{source.number}] {neutralise(source.text)}\n"
-        "</source>"
-        for source in sources
-    ]
-    parts.append(f"<question>\n{neutralise(question)}\n</question>")
+    parts: list[str] = []
+    for source in sources:
+        body, cut = _cap(source.text, MAX_SOURCE_CHARS)
+        marker = "\n" + TRUNCATED_MARKER if cut else ""
+        parts.append(
+            f'<source number="{source.number}" title="{_attribute(source.title)}" '
+            f'section="{_attribute(source.heading)}">\n'
+            f"[{source.number}] {neutralise(body)}{marker}\n"
+            "</source>"
+        )
+    asked, cut = _cap(question, MAX_QUESTION_CHARS)
+    marker = " " + TRUNCATED_MARKER if cut else ""
+    parts.append(f"<question>\n{neutralise(asked)}{marker}\n</question>")
     return "\n\n".join(parts)

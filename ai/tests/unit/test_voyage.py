@@ -264,3 +264,46 @@ def test_rerank_unauthorised_raises_provider_error() -> None:
     with pytest.raises(ProviderError) as caught:
         reranker.rerank("q", ["a"], top_k=1)
     assert KEY not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [None, "x", float("nan"), float("inf"), float("-inf"), [1.0], True],
+)
+def test_malformed_vector_element_raises_provider_error(bad_value: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        vector = [0.5] * (DIM - 1) + [bad_value]
+        body = json.dumps({"data": [{"index": 0, "embedding": vector}]}, allow_nan=True)
+        return httpx.Response(
+            200, content=body.encode(), headers={"content-type": "application/json"}
+        )
+
+    with pytest.raises(ProviderError, match="malformed vector"):
+        embedder(make_client(handler)).embed_query("a")
+
+
+def test_rerank_rejects_duplicate_indexes() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        data = [
+            {"index": 0, "relevance_score": 0.9},
+            {"index": 0, "relevance_score": 0.8},
+            {"index": 1, "relevance_score": 0.1},
+        ]
+        return httpx.Response(200, json={"data": data})
+
+    reranker = VoyageReranker(make_client(handler), api_key=SecretStr(KEY), model="m")
+    with pytest.raises(ProviderError, match="malformed rerank"):
+        reranker.rerank("q", ["a", "b"], top_k=2)
+
+
+@pytest.mark.parametrize("score", [float("nan"), float("inf"), None, "0.5", True])
+def test_rerank_rejects_non_finite_or_non_numeric_scores(score: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.dumps({"data": [{"index": 0, "relevance_score": score}]})
+        return httpx.Response(
+            200, content=body.encode(), headers={"content-type": "application/json"}
+        )
+
+    reranker = VoyageReranker(make_client(handler), api_key=SecretStr(KEY), model="m")
+    with pytest.raises(ProviderError, match="malformed rerank"):
+        reranker.rerank("q", ["a"], top_k=1)

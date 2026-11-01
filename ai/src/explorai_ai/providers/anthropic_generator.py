@@ -43,6 +43,21 @@ def _call(client: Any, **kwargs: Any) -> Any:
                 f"anthropic server error (HTTP {status})"
             ) from None
         raise ProviderError(f"anthropic rejected the request (HTTP {status})") from None
+    except anthropic.APIError:  # e.g. APIResponseValidationError: no HTTP status
+        raise ProviderError("anthropic returned an unusable response") from None
+
+
+_BAD_STOP_REASONS = {
+    "max_tokens": "the answer was cut off (max_tokens)",
+    "refusal": "the model refused to answer (refusal)",
+    "model_context_window_exceeded": "the prompt exceeded the context window",
+}
+
+
+def _check_stop_reason(message: Any) -> None:
+    reason = getattr(message, "stop_reason", None)
+    if reason in _BAD_STOP_REASONS:
+        raise ProviderError(_BAD_STOP_REASONS[reason])
 
 
 def _usage(message: Any) -> Usage:
@@ -111,6 +126,7 @@ class AnthropicGenerator:
                 timeout=self._timeout,
             )
         )
+        _check_stop_reason(message)
         for block in getattr(message, "content", None) or []:
             if (
                 getattr(block, "type", None) == "tool_use"

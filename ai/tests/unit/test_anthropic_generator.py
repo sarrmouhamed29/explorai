@@ -30,9 +30,10 @@ def text_block(text: str) -> SimpleNamespace:
     return SimpleNamespace(type="text", text=text)
 
 
-def message(*blocks: SimpleNamespace) -> SimpleNamespace:
+def message(*blocks: SimpleNamespace, stop_reason: str = "tool_use") -> SimpleNamespace:
     return SimpleNamespace(
         content=list(blocks),
+        stop_reason=stop_reason,
         usage=SimpleNamespace(input_tokens=120, output_tokens=30),
     )
 
@@ -186,3 +187,42 @@ def test_rewrite_provider_errors_propagate() -> None:
     client = StubClient(status_error(anthropic.AuthenticationError, 401))
     with pytest.raises(ProviderError):
         generator(client).rewrite_queries("q", 3)
+
+
+@pytest.mark.parametrize(
+    ("reason", "fragment"),
+    [
+        ("max_tokens", "cut off"),
+        ("refusal", "refused"),
+        ("model_context_window_exceeded", "context window"),
+    ],
+)
+def test_bad_stop_reasons_raise_distinct_errors(reason: str, fragment: str) -> None:
+    # The tool input is valid on its own: only the stop reason betrays the problem.
+    client = StubClient(message(tool_block(GOOD_INPUT), stop_reason=reason))
+    with pytest.raises(ProviderError, match=fragment) as caught:
+        generator(client).answer("q", SOURCES)
+    assert "answer tool" not in str(caught.value)
+    assert len(client.calls) == 1
+
+
+def test_tool_use_stop_reason_is_the_happy_path() -> None:
+    client = StubClient(message(tool_block(GOOD_INPUT), stop_reason="tool_use"))
+    assert generator(client).answer("q", SOURCES).status == "answered"
+
+
+def test_sdk_errors_without_a_status_are_mapped() -> None:
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(200, request=request)
+    errors: list[Exception] = [
+        anthropic.APIResponseValidationError(response, body=None),
+        anthropic.APIError("sk-secret-key leaked?", request, body=None),
+    ]
+    for error in errors:
+        client = StubClient(error)
+        with pytest.raises(ProviderError) as caught:
+            generator(client).answer("q", SOURCES)
+        assert type(caught.value) is ProviderError
+        assert "sk-secret" not in str(caught.value)
+        assert caught.value.__cause__ is None
+        assert len(client.calls) == 1
