@@ -24,10 +24,11 @@ from datetime import UTC, datetime
 
 import pytest
 from qdrant_client.models import Filter
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select, true
 from sqlalchemy.orm import Session, sessionmaker
 
 from explorai_ai import scope as scope_module
+from explorai_ai import store as store_module
 from explorai_ai.config import RagSettings
 from explorai_ai.index import QdrantIndex
 from explorai_ai.models import AnswerResult
@@ -233,6 +234,12 @@ def match_everything(
     return Filter()
 
 
+def owner_condition_removed(user_id: uuid.UUID) -> ColumnElement[bool]:
+    """Stands in for ``store._visible_to``: no owner condition in the query."""
+    del user_id
+    return true()
+
+
 def test_rls_still_stops_foreign_chunks_when_the_qdrant_filter_is_removed(
     monkeypatch: pytest.MonkeyPatch,
     corpus: Corpus,
@@ -260,10 +267,21 @@ def test_rls_still_stops_foreign_chunks_when_the_qdrant_filter_is_removed(
     with sessions.scoped(corpus.bob) as session:
         assert set(session.scalars(by_id)) == corpus.bob_chunks
 
-    # The whole path with defence 1 removed. The retriever looks the function up
-    # on the module at each call (``scoping.build_scope_filter``), so this patch
-    # reaches it.
+    # The whole path with defences 1 and 2 removed, so what remains is RLS
+    # alone. The retriever looks the filter function up on the module at each
+    # call (``scoping.build_scope_filter``) and ``hydrate`` reads the module
+    # global ``_visible_to`` at each call, so both patches reach the real code.
     monkeypatch.setattr(scope_module, "build_scope_filter", match_everything)
+    monkeypatch.setattr(store_module, "_visible_to", owner_condition_removed)
+
+    # The store itself, under both patches: Bob's chunk is invisible to Alice,
+    # while Bob (positive control) still reads it.
+    store = ChunkStore(sessions)
+    assert store.hydrate(corpus.alice, list(corpus.bob_chunks)) == []
+    assert {r.chunk_id for r in store.hydrate(corpus.bob, list(corpus.bob_chunks))} == (
+        corpus.bob_chunks
+    )
+
     spy = SpyStore(sessions)
     alice = rag_stack(session_factory, qdrant_index, rag_settings, store=spy)
     for asked in (*BOB_QUESTIONS, MIXED_QUESTION):
@@ -276,7 +294,7 @@ def test_rls_still_stops_foreign_chunks_when_the_qdrant_filter_is_removed(
         assert_answer_has_nothing_of_bob(answer, corpus)
 
     # The patch really took effect: Qdrant handed Bob's chunk id to the store,
-    # and the PostgreSQL re-read is what dropped it.
+    # and the PostgreSQL re-read under RLS is what dropped it.
     assert corpus.bob_chunks <= spy.requested
     # The mixed question reached the generator, with Alice's text and none of Bob's.
     assert [q for q, _ in alice.generator.answers] == [MIXED_QUESTION]
