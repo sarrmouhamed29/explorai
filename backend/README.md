@@ -26,11 +26,27 @@ Sessions live in Redis as `session:<sha256(token)>` (the raw token is never stor
 
 | Route | Answers |
 | --- | --- |
-| `GET /documents?scope=mine\|public\|all&limit=&cursor=` | 200 `{items, next_cursor}`; each item has `id`, `title`, `source_kind`, `owned`, `status` (`processing`, `ready`, `failed`), `created_at`; `limit` 1 to 100 (default 20); 422 on a bad cursor |
+| `GET /documents?scope=mine\|public\|all&limit=&cursor=` | 200 `{items, next_cursor}`; each item has `id`, `title`, `source_kind`, `owned`, `status` (`processing`, `ready`, `failed`), `created_at`, `indexed` (true once its chunks are in the live search index, see below); `limit` 1 to 100 (default 20); 422 on a bad cursor |
 | `GET /documents/{id}` | 200; 404 if missing **or** owned by someone else |
 | `GET /documents/{id}/sections?limit=&cursor=` | 200 sections of the latest `ok` version; 404; 409 while there is none yet |
 | `POST /documents?filename=paper.pdf` | raw PDF body with `Content-Type: application/pdf`; 202 with the new document (`processing`), 200 with the existing one if you already uploaded the same bytes; 409 quota reached; 413 too large; 415 not a PDF; 429 too many uploads |
 | `DELETE /documents/{id}` | 204; 404; 403 for a public document |
+
+`indexed` is computed with one query per page (`ChunkStore.indexed_state`, keyed by the live index name `RagSettings.index_name`, i.e. embedding model and dimension): after a model change documents read `false` until the pipeline has re-indexed them.
+
+### Questions (`POST /api/v1/ask`, login required)
+
+Body `{question, scope: all|mine|public (default all), document_id?}`. The answer comes from the `explorai_ai` pipeline (retrieval in Qdrant, chunk texts re-read from PostgreSQL under RLS, generation, citation check); see `docs/superpowers/specs/2026-11-01-rag-design.md`.
+
+| Answer | When |
+| --- | --- |
+| 200 `{status, answer, citations, usage}` | `status` is `answered` (each citation has `source`, `quote`, `chunk_id`, `document_id`, `document_title`, `section`; every quote was checked verbatim against its chunk) or `insufficient_evidence` (`answer` is `null`, no citations): a refusal is a normal answer |
+| 404 | `document_id` is unknown **or** someone else's private document (same body) |
+| 422 | empty, whitespace-only or longer than 2000 characters question, bad `scope` or `document_id` (the question is never echoed) |
+| 429 | more than `RAG_ASK_MAX_PER_HOUR` (30) questions in the user's hourly window |
+| 503 | Redis (rate limiter), Qdrant, a model provider or PostgreSQL unavailable |
+
+Each question reserves one unit of the hourly budget before anything else (atomic `INCR` on `ask:user:<id>`); only a served question (answer or refusal) keeps it, every other outcome gives it back. Neither the question nor the answer is logged: codes, counts and durations only. RAG settings (`RAG_PROVIDER` is required: `fake` for tests and the dev stack, `real` needs `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY`; `QDRANT_URL`, `QDRANT_API_KEY`, models and limits, see `ai/`) are validated at startup: a missing or invalid value stops the app and names the variable, never its value.
 
 On state-changing requests an `Origin` header, when present, must be listed in `ALLOWED_ORIGINS` (403 otherwise); requests without one (curl, server-to-server) pass, and browsers always send it on cross-site writes. The examples below set it as the frontend would.
 
@@ -56,6 +72,9 @@ curl -b jar.txt -X POST "$API/documents?filename=paper.pdf" -H "$ORIGIN" \
 curl -b jar.txt "$API/documents?scope=mine&limit=10"        # follow next_cursor with &cursor=...
 curl -b jar.txt "$API/documents/<id>"                       # poll until "status":"ready"
 curl -b jar.txt "$API/documents/<id>/sections?limit=5"
+curl -b jar.txt "$API/documents/<id>"                       # poll until "indexed":true
+curl -b jar.txt -X POST "$API/ask" -H "$ORIGIN" -H "$JSON" \
+  -d '{"question":"What does the paper propose?","scope":"mine"}'
 curl -b jar.txt -X DELETE "$API/documents/<id>" -H "$ORIGIN"
 curl -b jar.txt -c jar.txt -X POST "$API/auth/logout" -H "$ORIGIN"
 ```
@@ -108,7 +127,7 @@ Unit tests need no services:
 uv run --package explorai-backend pytest backend/tests -m "not integration"
 ```
 
-Integration tests need real Postgres and Redis. Run from the repository root (the `backend/tests`
+Integration tests need real Postgres, Redis and Qdrant (`QDRANT_URL`, `QDRANT_API_KEY`) and `RAG_PROVIDER=fake`; the RAG tests index documents with the real indexing functions of `explorai_pipelines` (a dev-only dependency) and the fake models. Run from the repository root (the `backend/tests`
 path matters: it makes pytest pick up `backend/pyproject.toml`):
 
 ```

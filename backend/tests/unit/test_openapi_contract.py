@@ -28,6 +28,7 @@ def test_openapi_declares_user_api_paths() -> None:
         "/api/v1/documents": {"get", "post"},
         "/api/v1/documents/{document_id}": {"get", "delete"},
         "/api/v1/documents/{document_id}/sections": {"get"},
+        "/api/v1/ask": {"post"},
     }
     for path, methods in expected.items():
         assert methods <= set(paths[path]), path

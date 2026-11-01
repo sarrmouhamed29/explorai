@@ -39,6 +39,9 @@ class DocumentRow:
     owned: bool
     status: Status
     created_at: datetime
+    # Whether the document is searchable. The queries here leave it False; the
+    # service fills it with one ChunkStore.indexed_state query per page.
+    indexed: bool = False
 
 
 @dataclass(frozen=True, slots=True)

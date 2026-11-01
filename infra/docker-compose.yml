@@ -62,6 +62,10 @@ services:
       # Production MUST set SESSION_COOKIE_SECURE=true (the application default).
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-20000000}
+      # The app validates the RAG settings at startup. Fake models: no key needed.
+      RAG_PROVIDER: ${RAG_PROVIDER:-fake}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?set QDRANT_API_KEY in infra/.env}
     volumes:
       - blobs:/data/blobs
     ports:
@@ -70,6 +74,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully

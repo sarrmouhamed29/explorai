@@ -1,6 +1,138 @@
 {
   "components": {
     "schemas": {
+      "AskRequest": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "scope": {
+            "default": "all",
+            "enum": [
+              "all",
+              "mine",
+              "public"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "AskRequest",
+        "type": "object"
+      },
+      "AskResponse": {
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationOut"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageOut"
+          }
+        },
+        "required": [
+          "status",
+          "answer",
+          "citations",
+          "usage"
+        ],
+        "title": "AskResponse",
+        "type": "object"
+      },
+      "CitationOut": {
+        "properties": {
+          "chunk_id": {
+            "format": "uuid",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Title"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "source": {
+            "title": "Source",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "quote",
+          "chunk_id",
+          "document_id",
+          "document_title",
+          "section"
+        ],
+        "title": "CitationOut",
+        "type": "object"
+      },
       "Credentials": {
         "properties": {
           "email": {
@@ -33,6 +165,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "indexed": {
+            "description": "True when the document's chunks are in the live search index",
+            "title": "Indexed",
+            "type": "boolean"
           },
           "owned": {
             "title": "Owned",
@@ -69,7 +206,8 @@
           "source_kind",
           "owned",
           "status",
-          "created_at"
+          "created_at",
+          "indexed"
         ],
         "title": "DocumentOut",
         "type": "object"
@@ -236,6 +374,24 @@
         "title": "SectionPage",
         "type": "object"
       },
+      "UsageOut": {
+        "properties": {
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens"
+        ],
+        "title": "UsageOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -291,6 +447,61 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/ask": {
+      "post": {
+        "description": "Answer from the documents the user can see, citing verified quotes.\n\n``status`` is ``answered`` (at least one citation, each quote checked against\nits chunk) or ``insufficient_evidence`` (``answer`` is null): a refusal is a\nnormal ``200`` answer, not an error.",
+        "operationId": "ask_api_v1_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Origin not allowed"
+          },
+          "404": {
+            "description": "document_id not found, or owned by someone else"
+          },
+          "422": {
+            "description": "Empty, blank or too long question, or invalid scope"
+          },
+          "429": {
+            "description": "Too many questions this hour"
+          },
+          "503": {
+            "description": "Rate limiter, vector store, model provider or database unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Ask",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login_api_v1_auth_login_post",

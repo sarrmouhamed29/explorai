@@ -9,7 +9,12 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from explorai_ai.config import RagSettings
+from explorai_ai.fakes import FakeEmbedder
+from explorai_ai.index import QdrantIndex
 from explorai_db.models import Document, DocumentVersion, RawArtifact, Section, Source
+from explorai_pipelines.indexing import index_pending
+from explorai_pipelines.repository import Repository
 
 PASSWORD = "correct horse battery staple"
 
@@ -129,3 +134,22 @@ def add_version(
                 Section(version_id=version.id, ordinal=ordinal, heading=None, text=text)
             )
         return version.id
+
+
+def index_everything(
+    factory: sessionmaker[Session], index: QdrantIndex, settings: RagSettings
+) -> dict[str, int]:
+    """One pass of the real indexing function (chunk, embed, upsert, record).
+
+    The pipeline's repository runs as the table owner, as the pipelines service
+    does; the embedder is the fake of ``explorai_ai``.
+    """
+    counters: dict[str, int] = index_pending(
+        Repository(factory),
+        FakeEmbedder(dimension=settings.embedding_dimension),
+        index,
+        settings,
+    )
+    assert counters["skipped"] == 0, counters
+    assert counters["embedding_failed"] == 0, counters
+    return counters

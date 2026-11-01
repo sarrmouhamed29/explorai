@@ -9,10 +9,12 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
+from explorai_backend.api.ask import router as ask_router
 from explorai_backend.api.auth import router as auth_router
 from explorai_backend.api.documents import router as documents_router
 from explorai_backend.api.health import router as health_router
 from explorai_backend.config import get_settings
+from explorai_backend.deps import get_rag_settings
 from explorai_backend.middleware import OriginCheckMiddleware
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Fail fast: invalid or missing configuration aborts startup instead of
     # surfacing on the first /health/ready request. Not run by create_app().openapi().
     get_settings()
+    # The RAG settings too (RAG_PROVIDER is required): a bad value names the
+    # variable at startup instead of failing the first question.
+    get_rag_settings()
     yield
 
 
@@ -63,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(documents_router)
+    app.include_router(ask_router)
     return app
 
 

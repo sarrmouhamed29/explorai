@@ -2,6 +2,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from explorai_backend import deps
 from explorai_backend.config import get_settings
 from explorai_backend.main import create_app
 
@@ -15,7 +16,9 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFac
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("BLOB_DIR", "blobs")
     monkeypatch.setenv("ALLOWED_ORIGINS", ALLOWED)
+    monkeypatch.setenv("RAG_PROVIDER", "fake")  # the lifespan validates it too
     get_settings.cache_clear()
+    deps.get_rag_settings.cache_clear()
     app: FastAPI = create_app()
 
     @app.post("/echo")
@@ -29,6 +32,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFac
     with TestClient(app) as test_client:
         yield test_client
     get_settings.cache_clear()
+    deps.get_rag_settings.cache_clear()
 
 
 def test_foreign_origin_post_rejected(client: TestClient) -> None:

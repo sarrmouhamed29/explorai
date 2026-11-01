@@ -5,6 +5,7 @@ description = "Explorai backend API"
 requires-python = ">=3.12"
 dependencies = [
     "explorai-db",
+    "explorai-ai",
     "argon2-cffi",
     "email-validator",
     "fastapi",
@@ -25,10 +26,15 @@ dev = [
     "pre-commit",
     "httpx2>=2.16.0",
     "fakeredis",
+    # Test-only: the integration tests index documents with the real indexing
+    # functions. Never a runtime dependency (the image installs --no-dev).
+    "explorai-pipelines",
 ]
 
 [tool.uv.sources]
 explorai-db = { workspace = true }
+explorai-ai = { workspace = true }
+explorai-pipelines = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -53,7 +59,7 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "C4", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["explorai_backend", "explorai_db"]
+known-first-party = ["explorai_backend", "explorai_db", "explorai_ai", "explorai_pipelines"]
 
 [tool.mypy]
 strict = true

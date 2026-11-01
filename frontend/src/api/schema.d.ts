@@ -4,6 +4,30 @@
  */
 
 export interface paths {
+    "/api/v1/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask
+         * @description Answer from the documents the user can see, citing verified quotes.
+         *
+         *     ``status`` is ``answered`` (at least one citation, each quote checked against
+         *     its chunk) or ``insufficient_evidence`` (``answer`` is null): a refusal is a
+         *     normal ``200`` answer, not an error.
+         */
+        post: operations["ask_api_v1_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -176,6 +200,53 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AskRequest */
+        AskRequest: {
+            /** Document Id */
+            document_id?: string | null;
+            /** Question */
+            question: string;
+            /**
+             * Scope
+             * @default all
+             * @enum {string}
+             */
+            scope: "all" | "mine" | "public";
+        };
+        /** AskResponse */
+        AskResponse: {
+            /** Answer */
+            answer: string | null;
+            /** Citations */
+            citations: components["schemas"]["CitationOut"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "answered" | "insufficient_evidence";
+            usage: components["schemas"]["UsageOut"];
+        };
+        /** CitationOut */
+        CitationOut: {
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Document Title */
+            document_title: string | null;
+            /** Quote */
+            quote: string;
+            /** Section */
+            section: string | null;
+            /** Source */
+            source: number;
+        };
         /** Credentials */
         Credentials: {
             /**
@@ -198,6 +269,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Indexed
+             * @description True when the document's chunks are in the live search index
+             */
+            indexed: boolean;
             /** Owned */
             owned: boolean;
             /** Source Kind */
@@ -271,6 +347,13 @@ export interface components {
             /** Next Cursor */
             next_cursor: string | null;
         };
+        /** UsageOut */
+        UsageOut: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -293,6 +376,72 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ask_api_v1_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AskResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Origin not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description document_id not found, or owned by someone else */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Empty, blank or too long question, or invalid scope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many questions this hour */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Rate limiter, vector store, model provider or database unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     login_api_v1_auth_login_post: {
         parameters: {
             query?: never;
