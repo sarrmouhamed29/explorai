@@ -188,16 +188,29 @@ class Repository:
             )
 
     def artifacts_missing_version(self, extractor_version: str) -> list[ArtifactRef]:
+        """Artifacts with no version by ``extractor_version``, whatever their kind.
+
+        A PDF never gets an ``html-*`` version (and the reverse), so for one
+        extractor this is most of the corpus: fine for the nightly catch-up, too
+        much for a pass every 30 seconds (see ``artifacts_without_any_version``).
+        """
+        return self._artifact_refs(
+            ~exists().where(
+                DocumentVersion.artifact_id == RawArtifact.id,
+                DocumentVersion.extractor_version == extractor_version,
+            )
+        )
+
+    def artifacts_without_any_version(self) -> list[ArtifactRef]:
+        """Artifacts no extractor has processed yet: fresh uploads, failed runs."""
+        return self._artifact_refs(
+            ~exists().where(DocumentVersion.artifact_id == RawArtifact.id)
+        )
+
+    def _artifact_refs(self, condition: ColumnElement[bool]) -> list[ArtifactRef]:
         with self._factory() as session:
             rows = session.scalars(
-                select(RawArtifact)
-                .where(
-                    ~exists().where(
-                        DocumentVersion.artifact_id == RawArtifact.id,
-                        DocumentVersion.extractor_version == extractor_version,
-                    )
-                )
-                .order_by(RawArtifact.fetched_at)
+                select(RawArtifact).where(condition).order_by(RawArtifact.fetched_at)
             ).all()
             return [
                 ArtifactRef(

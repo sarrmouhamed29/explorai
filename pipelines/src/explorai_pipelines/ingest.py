@@ -8,7 +8,7 @@ the ``(artifact, extractor_version)`` identity of a version.
 import hashlib
 import logging
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
@@ -25,7 +25,7 @@ from explorai_pipelines.extract.models import (
 )
 from explorai_pipelines.extract.pdf import PDF_EXTRACTOR_VERSION, extract_pdf_isolated
 from explorai_pipelines.netsafe import FetchResult
-from explorai_pipelines.repository import Repository
+from explorai_pipelines.repository import ArtifactRef, Repository
 from explorai_pipelines.sources.base import SourceItem
 
 logger = logging.getLogger(__name__)
@@ -240,6 +240,7 @@ def reextract(
     store: BlobStore,
     settings: PipelineSettings,
     extractors: Mapping[str, Extractor] = DEFAULT_EXTRACTORS,
+    only_unversioned: bool = False,
 ) -> dict[str, int]:
     """Create versions for stored artifacts lacking one for the current extractors.
 
@@ -249,6 +250,13 @@ def reextract(
     includes the catch-up at the end of ``run_batch``: a nightly run that starts
     while ``process-pending`` is extracting simply skips its catch-up, and that
     process finishes the work.
+
+    By default every artifact missing a version of *some* given extractor is
+    read, which is how an extractor version bump reaches the stored corpus; the
+    nightly catch-up and the manual ``reextract`` command run this way. With
+    ``only_unversioned`` (``process-pending``, every 30 seconds) only artifacts
+    with no version at all are read, so a pass costs nothing once uploads are
+    processed instead of reading every blob in the store.
     """
     counters = {o.value: 0 for o in Outcome} | {"skipped": 0}
     with repo.advisory_lock(CATCH_UP_LOCK) as acquired:
@@ -256,40 +264,61 @@ def reextract(
             counters["skipped"] = 1
             return counters
         indexes: dict[uuid.UUID | None, NearDuplicateIndex] = {}
-        for extractor in extractors.values():
-            for ref in repo.artifacts_missing_version(extractor.version):
-                try:
-                    data = store.get(ref.storage_key)
-                    if ref.owner_id not in indexes:
-                        indexes[ref.owner_id] = _index_from_database(repo, ref.owner_id)
-                    if sniff_kind(data, None, ref.url) != extractor.kind:
-                        continue
-                    outcome, _ = _process(
-                        repo=repo,
-                        index=indexes[ref.owner_id],
-                        source_id=ref.source_id,
-                        external_id=ref.external_id,
-                        owner_id=ref.owner_id,
-                        item_title=None,
-                        item_metadata=None,
-                        artifact_id=ref.id,
-                        data=data,
-                        url=ref.url,
-                        extractor=extractor,
-                        timeout=settings.extract_timeout_seconds,
-                    )
-                    # A re-extraction adds a version to an existing document.
-                    counters[
-                        Outcome.NEW_VERSION.value
-                        if outcome is Outcome.INGESTED
-                        else outcome.value
-                    ] += 1
-                except Exception as error:  # noqa: BLE001 - keep going, count the failure
-                    logger.warning(
-                        "re-extraction failed for %s: %s", ref.external_id, error
-                    )
-                    counters[Outcome.FAILED.value] += 1
+        for ref, candidates in _pending(repo, extractors, only_unversioned):
+            try:
+                data = store.get(ref.storage_key)
+                kind = sniff_kind(data, None, ref.url)
+                extractor = next((e for e in candidates if e.kind == kind), None)
+                if extractor is None:
+                    continue
+                if ref.owner_id not in indexes:
+                    indexes[ref.owner_id] = _index_from_database(repo, ref.owner_id)
+                outcome, _ = _process(
+                    repo=repo,
+                    index=indexes[ref.owner_id],
+                    source_id=ref.source_id,
+                    external_id=ref.external_id,
+                    owner_id=ref.owner_id,
+                    item_title=None,
+                    item_metadata=None,
+                    artifact_id=ref.id,
+                    data=data,
+                    url=ref.url,
+                    extractor=extractor,
+                    timeout=settings.extract_timeout_seconds,
+                )
+                # A re-extraction adds a version to an existing document.
+                counters[
+                    Outcome.NEW_VERSION.value
+                    if outcome is Outcome.INGESTED
+                    else outcome.value
+                ] += 1
+            except Exception as error:  # noqa: BLE001 - keep going, count the failure
+                logger.warning(
+                    "re-extraction failed for %s: %s", ref.external_id, error
+                )
+                counters[Outcome.FAILED.value] += 1
         return counters
+
+
+def _pending(
+    repo: Repository, extractors: Mapping[str, Extractor], only_unversioned: bool
+) -> Iterator[tuple[ArtifactRef, Sequence[Extractor]]]:
+    """Artifacts to read, each with the extractors that may apply to it.
+
+    The kind is only known once the bytes are read, so a candidate whose kind
+    does not match is skipped after the read. In the full mode each extractor
+    queries its own missing versions lazily, after the previous one has saved
+    its versions.
+    """
+    if only_unversioned:
+        candidates = list(extractors.values())
+        for ref in repo.artifacts_without_any_version():
+            yield ref, candidates
+        return
+    for extractor in extractors.values():
+        for ref in repo.artifacts_missing_version(extractor.version):
+            yield ref, (extractor,)
 
 
 def collect_blobs(
@@ -359,7 +388,8 @@ def run_batch(
                 errors.append(result.detail)
         # Finish what earlier runs left half-done (bytes stored, no version yet):
         # an item that is no longer in the source's latest listing would never be
-        # retried otherwise.
+        # retried otherwise. The full mode also applies extractor version bumps,
+        # which process-pending deliberately leaves to this nightly pass.
         caught_up = reextract(
             repo=repo, store=store, settings=settings, extractors=extractors
         )

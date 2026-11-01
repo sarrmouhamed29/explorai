@@ -165,3 +165,39 @@ def test_blob_refreshed_after_listing_survives_collection(
 
     assert collect_blobs(repo, ReuploadAfterListing()) == 0  # type: ignore[arg-type]
     assert store.get(key) == b"orphan"
+
+
+def test_process_pending_does_not_read_artifacts_that_have_a_version(
+    repo: Repository,
+    store: LocalBlobStore,
+    settings: PipelineSettings,
+    session_factory: sessionmaker[Session],
+) -> None:
+    # Processed before: it has a pdf version, and like every PDF no html version.
+    add_upload(session_factory, store, title="Old paper")
+    first = reextract(repo=repo, store=store, settings=settings, only_unversioned=True)
+    assert first["ingested"] + first["new_version"] == 1
+    with session_factory() as session:
+        old_key = session.scalars(select(RawArtifact.storage_key)).one()
+    add_upload(session_factory, store, title="New paper")
+    reads: list[str] = []
+
+    class SpyStore:
+        def __getattr__(self, name: str) -> object:
+            return getattr(store, name)
+
+        def get(self, key: str) -> bytes:
+            reads.append(key)
+            return store.get(key)
+
+    counters = reextract(
+        repo=repo,
+        store=SpyStore(),  # type: ignore[arg-type]
+        settings=settings,
+        only_unversioned=True,
+    )
+
+    assert counters["ingested"] + counters["new_version"] == 1
+    assert old_key not in reads
+    assert len(reads) == 1
+    assert [ref.storage_key for ref in repo.artifacts_without_any_version()] == []

@@ -60,7 +60,7 @@ curl -b jar.txt -X DELETE "$API/documents/<id>" -H "$ORIGIN"
 curl -b jar.txt -c jar.txt -X POST "$API/auth/logout" -H "$ORIGIN"
 ```
 
-Uploaded files are processed by the `process-pending` deployment of the pipelines service (see `pipelines/README.md`); without it running, documents stay `processing`.
+Uploaded files are processed by the `process-pending` deployment of the pipelines service (see `pipelines/README.md`), which every 30 seconds extracts the artifacts that have no version yet; without it running, documents stay `processing`.
 
 ### Known limitations
 

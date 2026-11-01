@@ -1,4 +1,8 @@
-"""Re-run extraction on stored artifacts after an extractor version bump."""
+"""Re-run extraction on stored artifacts after an extractor version bump.
+
+With the nightly catch-up, this is where version upgrades happen:
+``process-pending`` only processes artifacts that have no version at all.
+"""
 
 from prefect import flow
 
