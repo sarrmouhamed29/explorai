@@ -36,7 +36,7 @@ Sessions live in Redis as `session:<sha256(token)>` (the raw token is never stor
 
 ### Questions (`POST /api/v1/ask`, login required)
 
-Body `{question, scope: all|mine|public (default all), document_id?}`. `scope` picks the owner filter (`all`: yours and the public corpus; `mine`; `public`); `document_id` narrows the search to one visible document. The answer comes from the `explorai_ai` pipeline (hybrid retrieval in Qdrant under the owner filter, chunk texts re-read from PostgreSQL under RLS, reranking, generation through a forced tool, citation check); see [`ai/README.md`](../ai/README.md) and [`docs/concepts/03-rag.md`](../docs/concepts/03-rag.md).
+Body `{question, scope: all|mine|public (default all), document_id?}`. `scope` picks the owner filter (`all`: yours and the public corpus; `mine`; `public`); `document_id` narrows the search to one visible document; for a document whose latest version is a duplicate, to the document holding its canonical version (resolved under your RLS identity), so citations then name that document. The answer comes from the `explorai_ai` pipeline (hybrid retrieval in Qdrant under the owner filter, chunk texts re-read from PostgreSQL under RLS, reranking, generation through a forced tool, citation check); see [`ai/README.md`](../ai/README.md) and [`docs/concepts/03-rag.md`](../docs/concepts/03-rag.md).
 
 | Answer | When |
 | --- | --- |

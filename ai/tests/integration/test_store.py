@@ -388,3 +388,41 @@ def test_indexed_state_issues_one_query_whatever_the_count(
     finally:
         event.remove(engine, "before_cursor_execute", record)
     assert one == five == 1
+
+
+def test_searchable_document_follows_a_duplicate_under_rls(
+    store: ChunkStore, corpus: Corpus
+) -> None:
+    alice, bob = corpus.user(), corpus.user()
+    canonical_doc = corpus.document(alice)
+    canonical = corpus.version(canonical_doc, at(0))
+    duplicate_doc = corpus.document(alice)
+    corpus.version(duplicate_doc, at(1), duplicate_of=canonical)
+    plain_doc = corpus.document(alice)
+    corpus.version(plain_doc, at(0))
+    no_version_doc = corpus.document(alice)
+    public_doc = corpus.document(None)
+    corpus.version(public_doc, at(0))
+
+    # The duplicate is searched through the document of its canonical version.
+    assert store.searchable_document(alice, duplicate_doc) == canonical_doc
+    # Everything else resolves to itself.
+    for document in (canonical_doc, plain_doc, no_version_doc, public_doc):
+        assert store.searchable_document(alice, document) == document
+    # Someone who cannot see the duplicate learns nothing: it resolves to itself.
+    assert store.searchable_document(bob, duplicate_doc) == duplicate_doc
+    assert store.searchable_document(bob, uuid.uuid4()) != canonical_doc
+
+
+def test_searchable_document_needs_an_eligible_canonical_version(
+    store: ChunkStore, corpus: Corpus
+) -> None:
+    alice = corpus.user()
+    canonical_doc = corpus.document(alice)
+    canonical = corpus.version(canonical_doc, at(0))
+    duplicate_doc = corpus.document(alice)
+    corpus.version(duplicate_doc, at(1), duplicate_of=canonical)
+    # The canonical document moved on: its old version is no longer searchable,
+    # so the duplicate is not narrowed to the newer, different text.
+    corpus.version(canonical_doc, at(2))
+    assert store.searchable_document(alice, duplicate_doc) == duplicate_doc

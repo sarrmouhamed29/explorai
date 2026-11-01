@@ -112,6 +112,51 @@ class ChunkStore:
             found = {row[0]: ChunkRecord(*row) for row in session.execute(query)}
         return [found[chunk_id] for chunk_id in wanted if chunk_id in found]
 
+    def searchable_document(
+        self, user_id: uuid.UUID, document_id: uuid.UUID
+    ) -> uuid.UUID:
+        """The document whose chunks stand for ``document_id`` in the index.
+
+        A document whose latest ``ok`` version is a duplicate has no chunks of
+        its own: its canonical version (``duplicate_of``, a version of another
+        document of the same owner, see the pipeline's owner-scoped dedup) is
+        what is indexed, and what :meth:`indexed_state` reports. Narrowing a
+        search to ``document_id`` must therefore narrow it to that canonical
+        version's document. The same rule as ``indexed_state``: the canonical
+        version must still be eligible.
+
+        Read under the user's RLS identity, with the explicit visibility rule on
+        the target document too: an id the user cannot see, or whose canonical
+        document they cannot see, resolves to itself (the search then finds
+        nothing, exactly as before), so this never reveals or reaches another
+        owner's document.
+        """
+        latest = aliased(DocumentVersion, name="latest_version")
+        target = aliased(DocumentVersion, name="target_version")
+        target_document = aliased(Document, name="target_document")
+        query = (
+            select(target.document_id)
+            .select_from(Document)
+            .join(
+                latest,
+                and_(latest.document_id == Document.id, is_latest_ok_version(latest)),
+            )
+            .join(target, target.id == func.coalesce(latest.duplicate_of, latest.id))
+            .join(target_document, target_document.id == target.document_id)
+            .where(
+                Document.id == document_id,
+                _visible_to(user_id),
+                or_(
+                    target_document.owner_id.is_(None),
+                    target_document.owner_id == user_id,
+                ),
+                is_eligible_version(target),
+            )
+        )
+        with self._sessions.scoped(user_id) as session:
+            resolved = session.scalars(query).one_or_none()
+        return document_id if resolved is None else resolved
+
     def indexed_state(
         self,
         user_id: uuid.UUID,

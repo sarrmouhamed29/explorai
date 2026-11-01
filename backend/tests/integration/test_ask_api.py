@@ -11,10 +11,12 @@ import pytest
 import redis
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from explorai_ai.config import RagSettings
 from explorai_ai.index import QdrantIndex
+from explorai_db.models import DocumentVersion
 from integration import helpers
 from integration.helpers import (
     index_everything,
@@ -142,3 +144,54 @@ def test_empty_index_is_a_refusal_not_an_error(
 
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "insufficient_evidence"
+
+
+def test_asking_about_a_duplicate_document_answers_from_its_canonical_version(
+    rag_app: FastAPI,
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    qdrant_index: QdrantIndex,
+    rag_settings: RagSettings,
+) -> None:
+    alice = login_as(client, "alice@example.org")
+    login_as(client, "bob@example.org")
+    login_as_existing(client, "alice@example.org")
+    canonical_doc = document_with_text(session_factory, alice, "mine", ALICE_TEXT)
+    duplicate_doc = helpers.add_document(
+        session_factory, alice, title="copy", created_at=BASE
+    )
+    with session_factory.begin() as session:
+        canonical = session.scalars(
+            select(DocumentVersion.id).where(
+                DocumentVersion.document_id == canonical_doc
+            )
+        ).one()
+    duplicate = helpers.add_version(
+        session_factory, duplicate_doc, "ok", BASE, texts=(ALICE_TEXT,)
+    )
+    with session_factory.begin() as session:
+        session.get_one(DocumentVersion, duplicate).duplicate_of = canonical
+    index_everything(session_factory, qdrant_index, rag_settings)
+
+    # The duplicate reads as indexed (its canonical version is)...
+    shown = client.get(f"/api/v1/documents/{duplicate_doc}")
+    assert shown.json()["indexed"] is True
+    # ...and narrowing a question to it answers from that canonical version.
+    response = client.post(
+        ASK, json={"question": ALICE_QUESTION, "document_id": str(duplicate_doc)}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "answered"
+    assert {c["document_id"] for c in body["citations"]} == {str(canonical_doc)}
+
+    # Bob cannot use Alice's duplicate id: the same 404 as an unknown id.
+    login_as_existing(client, "bob@example.org")
+    foreign = client.post(
+        ASK, json={"question": ALICE_QUESTION, "document_id": str(duplicate_doc)}
+    )
+    unknown = client.post(
+        ASK, json={"question": ALICE_QUESTION, "document_id": str(uuid.uuid4())}
+    )
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.content == unknown.content

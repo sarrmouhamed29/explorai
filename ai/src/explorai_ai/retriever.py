@@ -153,6 +153,11 @@ class Retriever:
         started = time.perf_counter()
         settings = self._settings
         queries = self._queries(question)
+        if document_id is not None:
+            # A duplicate document has no chunks of its own: narrow to the
+            # document of its canonical version, resolved under the user's RLS
+            # identity (an invisible id resolves to itself and finds nothing).
+            document_id = self._store.searchable_document(user_id, document_id)
         flt = scoping.build_scope_filter(user_id, scope, document_id)
         rankings: list[list[UUID]] = []
         for query in queries:

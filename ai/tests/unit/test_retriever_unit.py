@@ -89,6 +89,15 @@ class FakeStore:
 
     known: set[uuid.UUID]
     calls: list[tuple[uuid.UUID, list[uuid.UUID]]] = field(default_factory=list)
+    # document -> the document holding its canonical version (duplicates).
+    canonical: dict[uuid.UUID, uuid.UUID] = field(default_factory=dict)
+    resolved: list[tuple[uuid.UUID, uuid.UUID]] = field(default_factory=list)
+
+    def searchable_document(
+        self, user_id: uuid.UUID, document_id: uuid.UUID
+    ) -> uuid.UUID:
+        self.resolved.append((user_id, document_id))
+        return self.canonical.get(document_id, document_id)
 
     def hydrate(
         self, user_id: uuid.UUID, ids: Sequence[uuid.UUID]
@@ -268,6 +277,26 @@ def test_every_search_carries_the_scope_filter(
             defaults.sparse_candidates,
             defaults.fused_candidates,
         )
+
+
+CANONICAL = uuid.UUID("33333333-3333-3333-3333-333333333333")
+
+
+def test_a_duplicate_document_is_searched_through_its_canonical_document() -> None:
+    # DOCUMENT's latest version is a duplicate: its chunks are those of the
+    # canonical version, which belongs to CANONICAL. The filter must say so.
+    r = rig([[]], rewrite_enabled=False)
+    r.store.canonical[DOCUMENT] = CANONICAL
+    r.retriever.retrieve(USER, QUESTION, "mine", DOCUMENT)
+    assert r.store.resolved == [(USER, DOCUMENT)]
+    assert r.index.calls[0].flt == build_scope_filter(USER, "mine", CANONICAL)
+
+
+def test_no_document_id_means_no_resolution() -> None:
+    r = rig([[]], rewrite_enabled=False)
+    r.retriever.retrieve(USER, QUESTION)
+    assert r.store.resolved == []
+    assert r.index.calls[0].flt == build_scope_filter(USER, "all", None)
 
 
 def test_the_filter_comes_from_the_scope_module(
