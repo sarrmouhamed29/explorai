@@ -55,12 +55,66 @@ def test_startup_refuses_to_run_without_rag_provider(
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("BLOB_DIR", "blobs")
 
-    # Invalid RAG configuration fails at startup, not on the first question.
-    with pytest.raises(ValidationError) as exc_info, TestClient(create_app()):
+    # Invalid RAG configuration fails at startup, not on the first question, and
+    # the message names the environment variable, not the pydantic field.
+    with (
+        pytest.raises(deps.RagConfigurationError) as exc_info,
+        TestClient(create_app()),
+    ):
         pass
 
-    assert "provider" in str(exc_info.value)
-    assert exc_info.value.title == "RagSettings"
+    assert "RAG_PROVIDER" in str(exc_info.value)
+
+
+def test_startup_names_unprefixed_variables_and_hides_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost:5432/db")
+    monkeypatch.setenv("REDIS_URL", REDIS_URL)
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("BLOB_DIR", "blobs")
+    monkeypatch.setenv("RAG_PROVIDER", "real")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    monkeypatch.setenv("RAG_PROVIDER_TIMEOUT_SECONDS", "-" + SECRET)
+
+    with (
+        pytest.raises(deps.RagConfigurationError) as exc_info,
+        TestClient(create_app()),
+    ):
+        pass
+
+    message = str(exc_info.value)
+    assert "RAG_PROVIDER_TIMEOUT_SECONDS" in message
+    assert SECRET not in message
+    assert exc_info.value.__cause__ is None  # the ValidationError is not chained
+
+
+def test_rag_error_names_the_unprefixed_key_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAG_PROVIDER", "real")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+
+    with pytest.raises(deps.RagConfigurationError) as exc_info:
+        deps.get_rag_settings()
+
+    message = str(exc_info.value)
+    assert "VOYAGE_API_KEY" in message
+    assert SECRET not in message
+
+
+def test_env_names_follow_the_settings_aliases() -> None:
+    assert deps.rag_env_name("provider") == "RAG_PROVIDER"
+    assert deps.rag_env_name("ask_max_per_hour") == "RAG_ASK_MAX_PER_HOUR"
+    for field, variable in [
+        ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+        ("voyage_api_key", "VOYAGE_API_KEY"),
+        ("qdrant_url", "QDRANT_URL"),
+        ("qdrant_api_key", "QDRANT_API_KEY"),
+    ]:
+        assert deps.rag_env_name(field) == variable
 
 
 def test_startup_succeeds_with_valid_configuration(

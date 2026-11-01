@@ -88,6 +88,26 @@ def test_rag_clients_are_built_once_without_connecting(
     assert len(built) == 1
     assert built[0]["check_compatibility"] is False
     assert built[0]["url"] == "http://127.0.0.1:1"
+    assert built[0]["timeout"] == 20
+
+
+@pytest.mark.parametrize(("seconds", "expected"), [("0.5", 1), ("2.1", 3), ("3", 3)])
+def test_qdrant_timeout_is_rounded_up_never_zero(
+    rag_env: None, monkeypatch: pytest.MonkeyPatch, seconds: str, expected: int
+) -> None:
+    # The client takes whole seconds; int(0.5) would be 0, i.e. no time at all.
+    monkeypatch.setenv("RAG_PROVIDER_TIMEOUT_SECONDS", seconds)
+    built: list[dict[str, object]] = []
+
+    def recording_client(**kwargs: object) -> object:
+        built.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(deps, "QdrantClient", recording_client)
+
+    deps.get_qdrant_index()
+
+    assert built[0]["timeout"] == expected
     providers = deps.get_providers()
 
     assert providers is deps.get_providers()
