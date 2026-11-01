@@ -15,9 +15,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from explorai_ai.config import RagSettings
 from explorai_ai.index import QdrantIndex
+from integration import helpers
 from integration.helpers import (
-    add_document,
-    add_version,
     index_everything,
     login_as,
     login_as_existing,
@@ -47,9 +46,7 @@ BOB_QUESTION = "How long does Bob ferment purple carrots with juniper berries?"
 def document_with_text(
     factory: sessionmaker[Session], owner: uuid.UUID | None, title: str, text: str
 ) -> uuid.UUID:
-    document = add_document(factory, owner, title=title, created_at=BASE)
-    add_version(factory, document, "ok", BASE, texts=(text,))
-    return document
+    return helpers.document_with_text(factory, owner, title, text, BASE)
 
 
 def reserved(redis_client: redis.Redis, user: uuid.UUID) -> int:
