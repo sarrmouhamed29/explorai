@@ -72,13 +72,14 @@ def search(
     text: str,
     user: uuid.UUID,
     scope: str = "all",
+    branch_limit: int = 10,
 ) -> list[uuid.UUID]:
     hits = index.search(
         dense=dense,
         sparse=encode_query(text),
         flt=build_scope_filter(user, scope),  # type: ignore[arg-type]
-        dense_limit=10,
-        sparse_limit=10,
+        dense_limit=branch_limit,
+        sparse_limit=branch_limit,
         limit=10,
     )
     return [h.id for h in hits]
@@ -94,16 +95,54 @@ def test_ensure_collection_is_idempotent(index: QdrantIndex) -> None:
 def test_upsert_and_hybrid_search_finds_semantic_and_keyword_matches(
     index: QdrantIndex,
 ) -> None:
+    """Each branch is the only way to reach one of the points (branch limit 2).
+
+    Three distractors have dense vectors closer to the query than the keyword point
+    and share no token with the query, so the keyword point cannot come from the
+    dense branch (it ranks 5th of 5 there); the semantic point shares no token with
+    the query, so it cannot come from the sparse branch. Dropping either prefetch
+    makes this test fail.
+    """
     user = uuid.uuid4()
     collection = index.ensure_collection(fresh_model(), DIM)
     index.switch_alias(collection)
     semantic = point([1.0, 0.0, 0.0, 0.0], "alpha beta gamma", "public")
     keyword = point([0.0, 0.0, 0.0, 1.0], "zyxwvutsr rare token", "public")
-    noise = point([0.0, 1.0, 0.0, 0.0], "unrelated words here", "public")
-    index.upsert(collection, [semantic, keyword, noise])
-    found = search(index, [1.0, 0.0, 0.0, 0.0], "zyxwvutsr", user)
-    assert semantic.id in found  # only the dense vector can match it
-    assert keyword.id in found  # only the exact rare token can match it
+    distractors = [
+        point([1.0, 0.1 * (i + 1), 0.0, 0.0], f"filler{i} words", "public")
+        for i in range(3)
+    ]
+    index.upsert(collection, [semantic, keyword, *distractors])
+    found = search(index, [1.0, 0.0, 0.0, 0.0], "zyxwvutsr", user, branch_limit=2)
+    assert semantic.id in found  # only the dense branch can reach it
+    assert keyword.id in found  # only the sparse branch can reach it
+
+
+def test_search_before_any_alias_returns_empty(index: QdrantIndex) -> None:
+    assert index.alias_target() is None
+    assert search(index, [1.0, 0.0, 0.0, 0.0], "anything", uuid.uuid4()) == []
+
+
+def test_search_with_alias_pointing_at_a_deleted_collection_returns_empty(
+    index: QdrantIndex, client: QdrantClient
+) -> None:
+    collection = index.ensure_collection(fresh_model(), DIM)
+    index.switch_alias(collection)
+    client.delete_collection(collection)
+    assert search(index, [1.0, 0.0, 0.0, 0.0], "anything", uuid.uuid4()) == []
+
+
+def test_ensure_collection_restores_missing_payload_indexes(
+    index: QdrantIndex, client: QdrantClient
+) -> None:
+    model = fresh_model()
+    name = index.ensure_collection(model, DIM)
+    client.delete_payload_index(name, "owner_id")
+    client.delete_payload_index(name, "document_id")
+    assert client.get_collection(name).payload_schema == {}
+    assert index.ensure_collection(model, DIM) == name
+    schema = client.get_collection(name).payload_schema
+    assert set(schema) == {"owner_id", "document_id"}
 
 
 def test_filter_limits_results_to_owner_and_public(index: QdrantIndex) -> None:

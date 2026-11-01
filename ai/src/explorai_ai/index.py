@@ -7,6 +7,7 @@ collection searches use, so a re-index into a new collection goes live with one
 atomic alias switch and no downtime.
 """
 
+import logging
 import re
 import uuid
 from collections.abc import Iterator, Sequence
@@ -44,6 +45,16 @@ DENSE = "dense"
 SPARSE = "sparse"
 DEFAULT_ALIAS = "chunks_current"
 _SCROLL_PAGE = 256
+logger = logging.getLogger(__name__)
+
+
+def is_missing(exc: UnexpectedResponse) -> bool:
+    """The server answered 404: the alias or the collection it names does not exist."""
+    return exc.status_code == 404
+
+
+def is_unavailable(exc: UnexpectedResponse) -> bool:
+    return (exc.status_code or 0) >= 500
 
 
 @dataclass(frozen=True)
@@ -68,29 +79,36 @@ class QdrantIndex:
 
     def ensure_collection(self, model: str, dimension: int) -> str:
         name = self.collection_name(model, dimension)
-        if self._client.collection_exists(name):
-            return name
-        self._client.create_collection(
-            collection_name=name,
-            vectors_config={
-                DENSE: VectorParams(size=dimension, distance=Distance.COSINE)
-            },
-            # IDF is applied by Qdrant at query time from the collection statistics.
-            sparse_vectors_config={SPARSE: SparseVectorParams(modifier=Modifier.IDF)},
-        )
-        # Tenant index: Qdrant co-locates the vectors of one owner for fast filtering.
-        self._client.create_payload_index(
-            collection_name=name,
-            field_name="owner_id",
-            field_schema=KeywordIndexParams(
-                type=KeywordIndexType.KEYWORD, is_tenant=True
-            ),
-        )
-        self._client.create_payload_index(
-            collection_name=name,
-            field_name="document_id",
-            field_schema=KeywordIndexParams(type=KeywordIndexType.KEYWORD),
-        )
+        if not self._client.collection_exists(name):
+            self._client.create_collection(
+                collection_name=name,
+                vectors_config={
+                    DENSE: VectorParams(size=dimension, distance=Distance.COSINE)
+                },
+                # IDF is applied by Qdrant at query time from the collection stats.
+                sparse_vectors_config={
+                    SPARSE: SparseVectorParams(modifier=Modifier.IDF)
+                },
+            )
+        # Runs even when the collection exists: a crash between the creation above and
+        # the indexes below would otherwise leave it without its tenant index for good.
+        # Only the missing indexes are created, so no reliance on re-creation semantics.
+        present = self._client.get_collection(name).payload_schema
+        if "owner_id" not in present:
+            # Tenant index: Qdrant co-locates the vectors of one owner.
+            self._client.create_payload_index(
+                collection_name=name,
+                field_name="owner_id",
+                field_schema=KeywordIndexParams(
+                    type=KeywordIndexType.KEYWORD, is_tenant=True
+                ),
+            )
+        if "document_id" not in present:
+            self._client.create_payload_index(
+                collection_name=name,
+                field_name="document_id",
+                field_schema=KeywordIndexParams(type=KeywordIndexType.KEYWORD),
+            )
         return name
 
     def upsert(self, collection: str, points: Sequence[IndexPoint]) -> None:
@@ -163,9 +181,12 @@ class QdrantIndex:
         except (ResponseHandlingException, httpx.HTTPError) as exc:
             raise RetrievalUnavailable("vector store unreachable") from exc
         except UnexpectedResponse as exc:
-            # 404 here means the alias does not exist yet: not ready, like a 5xx.
-            status = exc.status_code or 0
-            if status >= 500 or status == 404:
+            if is_missing(exc):
+                # No alias yet (nothing indexed) or it points at a deleted collection:
+                # an empty corpus, not an outage. No query text is logged.
+                logger.warning("vector store has no searchable collection")
+                return []
+            if is_unavailable(exc):
                 raise RetrievalUnavailable("vector store not ready") from exc
             raise
         return [
