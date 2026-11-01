@@ -108,7 +108,7 @@ class DocumentsRepository:
         )
         if after is not None:
             query = query.where(
-                tuple_(Document.created_at, Document.id) < tuple_(*after)
+                tuple_(Document.created_at, Document.id) < (after[0], after[1])
             )
         with self._sessions.scoped(user_id) as session:
             return [
@@ -169,7 +169,8 @@ class DocumentsRepository:
             select(Document, Source.kind, _LATEST_VERSION_STATUS)
             .join(Source, Source.id == Document.source_id)
             .where(
-                tuple_(Source.kind, Source.name) == tuple_(*UPLOAD_SOURCE),
+                Source.kind == UPLOAD_SOURCE[0],
+                Source.name == UPLOAD_SOURCE[1],
                 Document.external_id == sha256,
                 Document.owner_id == user_id,
             )
@@ -209,7 +210,8 @@ class DocumentsRepository:
         with self._sessions.scoped(user_id) as session:
             source_id = session.scalars(
                 select(Source.id).where(
-                    tuple_(Source.kind, Source.name) == tuple_(*UPLOAD_SOURCE)
+                    Source.kind == UPLOAD_SOURCE[0],
+                    Source.name == UPLOAD_SOURCE[1],
                 )
             ).one()
             identity = {

@@ -65,8 +65,11 @@ def test_backfill_uses_earliest_artifact_time() -> None:
                 )
         command.upgrade(config, "head")
         with engine.connect() as connection:
-            rows: dict[uuid.UUID, datetime] = dict(
-                connection.execute(text("SELECT id, created_at FROM documents")).all()
-            )
+            rows: dict[uuid.UUID, datetime] = {
+                row[0]: row[1]
+                for row in connection.execute(
+                    text("SELECT id, created_at FROM documents")
+                )
+            }
         assert rows[doc_id] == early
         assert rows[orphan_id] >= late
