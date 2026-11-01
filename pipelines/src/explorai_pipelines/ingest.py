@@ -8,11 +8,12 @@ the ``(artifact, extractor_version)`` identity of a version.
 import hashlib
 import logging
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
+from explorai_db.blobs import BlobStore
 from explorai_pipelines.clean import normalize
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.dedup import NearDuplicateIndex, minhash_signature, text_hash
@@ -24,13 +25,16 @@ from explorai_pipelines.extract.models import (
 )
 from explorai_pipelines.extract.pdf import PDF_EXTRACTOR_VERSION, extract_pdf_isolated
 from explorai_pipelines.netsafe import FetchResult
-from explorai_pipelines.repository import Repository
+from explorai_pipelines.repository import ArtifactRef, Repository
 from explorai_pipelines.sources.base import SourceItem
-from explorai_pipelines.storage import BlobStore
 
 logger = logging.getLogger(__name__)
 
 Kind = Literal["pdf", "html"]
+
+# Advisory lock key for the catch-up: one extraction pass at a time across processes.
+CATCH_UP_LOCK = 4242001
+BLOB_GRACE_SECONDS = 3600.0
 
 
 class Outcome(StrEnum):
@@ -236,21 +240,39 @@ def reextract(
     store: BlobStore,
     settings: PipelineSettings,
     extractors: Mapping[str, Extractor] = DEFAULT_EXTRACTORS,
+    only_unversioned: bool = False,
 ) -> dict[str, int]:
     """Create versions for stored artifacts lacking one for the current extractors.
 
-    Reads only stored bytes: no network. Returns counters by outcome.
+    Reads only stored bytes: no network. Returns counters by outcome plus
+    ``skipped``. Only one process extracts at a time (``CATCH_UP_LOCK``): if
+    another holds the lock this does nothing and returns ``skipped`` = 1. That
+    includes the catch-up at the end of ``run_batch``: a nightly run that starts
+    while ``process-pending`` is extracting simply skips its catch-up, and that
+    process finishes the work.
+
+    By default every artifact missing a version of *some* given extractor is
+    read, which is how an extractor version bump reaches the stored corpus; the
+    nightly catch-up and the manual ``reextract`` command run this way. With
+    ``only_unversioned`` (``process-pending``, every 30 seconds) only artifacts
+    with no version at all are read, so a pass costs nothing once uploads are
+    processed instead of reading every blob in the store.
     """
-    counters = {o.value: 0 for o in Outcome}
-    indexes: dict[uuid.UUID | None, NearDuplicateIndex] = {}
-    for extractor in extractors.values():
-        for ref in repo.artifacts_missing_version(extractor.version):
+    counters = {o.value: 0 for o in Outcome} | {"skipped": 0}
+    with repo.advisory_lock(CATCH_UP_LOCK) as acquired:
+        if not acquired:
+            counters["skipped"] = 1
+            return counters
+        indexes: dict[uuid.UUID | None, NearDuplicateIndex] = {}
+        for ref, candidates in _pending(repo, extractors, only_unversioned):
             try:
                 data = store.get(ref.storage_key)
+                kind = sniff_kind(data, None, ref.url)
+                extractor = next((e for e in candidates if e.kind == kind), None)
+                if extractor is None:
+                    continue
                 if ref.owner_id not in indexes:
                     indexes[ref.owner_id] = _index_from_database(repo, ref.owner_id)
-                if sniff_kind(data, None, ref.url) != extractor.kind:
-                    continue
                 outcome, _ = _process(
                     repo=repo,
                     index=indexes[ref.owner_id],
@@ -276,7 +298,52 @@ def reextract(
                     "re-extraction failed for %s: %s", ref.external_id, error
                 )
                 counters[Outcome.FAILED.value] += 1
-    return counters
+        return counters
+
+
+def _pending(
+    repo: Repository, extractors: Mapping[str, Extractor], only_unversioned: bool
+) -> Iterator[tuple[ArtifactRef, Sequence[Extractor]]]:
+    """Artifacts to read, each with the extractors that may apply to it.
+
+    The kind is only known once the bytes are read, so a candidate whose kind
+    does not match is skipped after the read. In the full mode each extractor
+    queries its own missing versions lazily, after the previous one has saved
+    its versions.
+    """
+    if only_unversioned:
+        candidates = list(extractors.values())
+        for ref in repo.artifacts_without_any_version():
+            yield ref, candidates
+        return
+    for extractor in extractors.values():
+        for ref in repo.artifacts_missing_version(extractor.version):
+            yield ref, (extractor,)
+
+
+def collect_blobs(
+    repo: Repository, store: BlobStore, grace_seconds: float = BLOB_GRACE_SECONDS
+) -> int:
+    """Delete blobs older than the grace period that no artifact references.
+
+    The API never deletes blobs (under row-level security it cannot see whether
+    another owner's artifact shares one), so unreferenced blobs are collected
+    here. The grace period protects an upload whose rows are not committed yet,
+    including one that re-uploads an old orphan blob (``put`` refreshes its age).
+    The referenced set is read after listing the old keys: a row committed in
+    between protects its blob.
+    """
+    old = store.keys_older_than(grace_seconds)
+    if not old:
+        return 0
+    referenced = repo.referenced_storage_keys()
+    # The age is checked again atomically at deletion: an upload of the same bytes
+    # may have refreshed the blob since it was listed, before its row is committed.
+    return sum(
+        store.delete_if_older_than(key, grace_seconds)
+        for key in old
+        if key not in referenced
+    )
 
 
 def run_batch(
@@ -321,7 +388,8 @@ def run_batch(
                 errors.append(result.detail)
         # Finish what earlier runs left half-done (bytes stored, no version yet):
         # an item that is no longer in the source's latest listing would never be
-        # retried otherwise.
+        # retried otherwise. The full mode also applies extractor version bumps,
+        # which process-pending deliberately leaves to this nightly pass.
         caught_up = reextract(
             repo=repo, store=store, settings=settings, extractors=extractors
         )

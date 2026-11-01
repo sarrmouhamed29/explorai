@@ -10,12 +10,12 @@ from functools import lru_cache
 
 import httpx
 
+from explorai_db.blobs import BlobStore, LocalBlobStore
 from explorai_db.session import make_engine, make_session_factory
 from explorai_pipelines.config import PipelineSettings, get_settings
 from explorai_pipelines.netsafe import Resolver, default_resolver
 from explorai_pipelines.repository import Repository
 from explorai_pipelines.sources.arxiv import ArxivSource
-from explorai_pipelines.storage import BlobStore, LocalBlobStore
 
 HTTP_TIMEOUT_SECONDS = 30.0
 

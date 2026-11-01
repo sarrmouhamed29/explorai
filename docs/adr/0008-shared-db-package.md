@@ -1,6 +1,6 @@
 # 0008. A shared `db/` package owns the schema
 
-- Status: Accepted
+- Status: Accepted, amended on 2026-11-01 (see "Amendment" below)
 - Date: 2026-10-31
 
 ## Context
@@ -22,3 +22,13 @@ Create the workspace package `db/` (`explorai-db`). It holds the SQLAlchemy mode
 - One migration history for the whole database, with a single owner.
 - The schema is shared state: changes need a migration and a check that both consumers still work. A test (`test_models_match_migrations`) fails when models and migrations diverge.
 - `owner_id` is a plain nullable UUID without a foreign key until the `users` table exists in sub-project 2.
+
+## Amendment (sub-project 2, 2026-11-01)
+
+`db/` is the **persistence layer**, not only the schema: it also holds the blob store and the identity-scoped session helper.
+
+- `BlobStore` and `LocalBlobStore` moved from `pipelines/` to `explorai_db.blobs`, because the API now writes uploaded files and must not import the pipelines package. This is the same argument as the original decision, applied to bytes instead of rows. The store gained `keys_older_than` and `delete_if_older_than` for garbage collection, and `put` refreshes the age of an existing blob.
+- `explorai_db.rls.scoped_session` is the only way request code opens a transaction (ADR 0010); the backend reaches it through the `ScopedSessions` wrapper and never holds the session factory.
+- Migration 0003 adds `users`, turns `owner_id` into a foreign key, adds the `explorai_app` role, its grants and the RLS policies; migration 0004 adds `documents.created_at`. The consequence above about `owner_id` is therefore resolved.
+- `make_engine` hides SQL parameters from error messages, so a failing statement can never put a password hash in a log.
+- The backend adopted the package, as announced. Both consumers still depend on `db/`, and `db/` depends on neither.

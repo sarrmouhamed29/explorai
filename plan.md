@@ -71,6 +71,7 @@ Each entry is one spec → plan → implementation → demo cycle.
 - **Deliverable:** FastAPI API, data model, authentication and authorisation, per-user data isolation, OpenAPI contract, API tests.
 - **Depends on:** 0, 1.
 - **Done when:** a user can never read another user's data (automated test) and the API is documented.
+- **Status:** implemented (spec `docs/superpowers/specs/2026-11-01-core-backend-design.md`, concepts `docs/concepts/02-core-backend.md`, ADRs 0009 and 0010).
 
 ### 3. RAG
 - **Deliverable:** chunking, embeddings, semantic and hybrid search, reranking, query rewriting, answers with citations, handling of missing information.
@@ -137,4 +138,4 @@ Each entry is one spec → plan → implementation → demo cycle.
 
 Write the detailed spec of sub-project 0 (Foundations), then its implementation plan. No code and no dependencies before both documents are approved.
 
-Update: sub-projects 0 (Foundations) and 1 (Ingestion) are implemented; sub-project 2 (Core backend) comes next, starting with its own spec.
+Update: sub-projects 0 (Foundations), 1 (Ingestion) and 2 (Core backend) are implemented on `feature/core-backend` (open check before merge: the smoke test and the integration suites have to run against the final code). Sub-project 3 (RAG) comes next, starting with its own spec.

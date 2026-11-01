@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
+from explorai_db.blobs import LocalBlobStore
 from explorai_db.session import make_engine, make_session_factory
 from explorai_db.testing import temporary_database
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.repository import Repository
-from explorai_pipelines.storage import LocalBlobStore
 
 
 @pytest.fixture(scope="session")
@@ -28,6 +28,14 @@ def session_factory(database_url: str) -> sessionmaker[Session]:
     with engine.begin() as connection:
         # Every other table references sources, so one cascade empties the schema.
         connection.execute(text("TRUNCATE sources CASCADE"))
+        # Migration 0003 seeds the upload source; the truncate removed it.
+        connection.execute(
+            text(
+                "INSERT INTO sources (id, kind, name, config) "
+                "VALUES (gen_random_uuid(), 'upload', 'upload', '{}'::jsonb) "
+                "ON CONFLICT DO NOTHING"
+            )
+        )
     return make_session_factory(engine)
 
 

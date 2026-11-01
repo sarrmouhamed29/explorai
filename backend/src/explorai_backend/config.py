@@ -1,10 +1,11 @@
 """Twelve-factor configuration: read from the environment, fail fast on bad values."""
 
 from functools import lru_cache
-from typing import Any, Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -17,6 +18,26 @@ class Settings(BaseSettings):
     redis_url: RedisDsn
     # Bounded: 0 would make /health/ready always 503, inf/nan would let it hang.
     check_timeout_seconds: float = Field(default=2.0, gt=0, le=30, allow_inf_nan=False)
+
+    blob_dir: Path
+    upload_max_bytes: int = Field(default=20_000_000, gt=0)
+    # NoDecode: the value is a comma-separated string, not JSON; see the validator.
+    allowed_origins: Annotated[list[str], NoDecode] = ["http://127.0.0.1:5173"]
+    session_cookie_secure: bool = True
+    session_idle_seconds: int = Field(default=86_400, gt=0)
+    session_max_seconds: int = Field(default=604_800, gt=0)
+    login_max_failures_per_email: int = Field(default=5, gt=0)
+    login_max_failures_per_ip: int = Field(default=20, gt=0)
+    login_window_seconds: int = Field(default=900, gt=0)
+    upload_max_per_hour: int = Field(default=20, gt=0)
+    max_documents_per_user: int = Field(default=200, gt=0)
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     # Callers use from_env() instead of Settings(): the pydantic mypy plugin
     # types required fields as required constructor args.

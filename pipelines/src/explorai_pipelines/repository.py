@@ -4,11 +4,13 @@ Every public method is one transaction, so a failure never leaves partial rows.
 """
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select, update
+from sqlalchemy import ColumnElement, and_, exists, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import InstrumentedAttribute, Session, sessionmaker
 
@@ -60,6 +62,34 @@ def _same_document(
 class Repository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._factory = session_factory
+
+    # locks
+
+    @contextmanager
+    def advisory_lock(self, key: int) -> Iterator[bool]:
+        """Try a session-level PostgreSQL advisory lock; yield whether it was taken.
+
+        The lock lives on a dedicated connection held for the whole ``with`` block,
+        so the repository's short transactions (on other connections) neither
+        hold nor lose it. It is released on exit, and by PostgreSQL itself if the
+        process dies. A transaction-level lock would end with the first commit.
+        """
+        engine = self._factory.kw["bind"]
+        with engine.connect() as connection:
+            acquired = bool(
+                connection.execute(
+                    text("SELECT pg_try_advisory_lock(:key)"), {"key": key}
+                ).scalar()
+            )
+            connection.commit()  # do not sit idle in a transaction while working
+            try:
+                yield acquired
+            finally:
+                if acquired:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(:key)"), {"key": key}
+                    )
+                    connection.commit()
 
     # sources and runs
 
@@ -158,16 +188,29 @@ class Repository:
             )
 
     def artifacts_missing_version(self, extractor_version: str) -> list[ArtifactRef]:
+        """Artifacts with no version by ``extractor_version``, whatever their kind.
+
+        A PDF never gets an ``html-*`` version (and the reverse), so for one
+        extractor this is most of the corpus: fine for the nightly catch-up, too
+        much for a pass every 30 seconds (see ``artifacts_without_any_version``).
+        """
+        return self._artifact_refs(
+            ~exists().where(
+                DocumentVersion.artifact_id == RawArtifact.id,
+                DocumentVersion.extractor_version == extractor_version,
+            )
+        )
+
+    def artifacts_without_any_version(self) -> list[ArtifactRef]:
+        """Artifacts no extractor has processed yet: fresh uploads, failed runs."""
+        return self._artifact_refs(
+            ~exists().where(DocumentVersion.artifact_id == RawArtifact.id)
+        )
+
+    def _artifact_refs(self, condition: ColumnElement[bool]) -> list[ArtifactRef]:
         with self._factory() as session:
             rows = session.scalars(
-                select(RawArtifact)
-                .where(
-                    ~exists().where(
-                        DocumentVersion.artifact_id == RawArtifact.id,
-                        DocumentVersion.extractor_version == extractor_version,
-                    )
-                )
-                .order_by(RawArtifact.fetched_at)
+                select(RawArtifact).where(condition).order_by(RawArtifact.fetched_at)
             ).all()
             return [
                 ArtifactRef(
@@ -180,6 +223,10 @@ class Repository:
                 )
                 for r in rows
             ]
+
+    def referenced_storage_keys(self) -> set[str]:
+        with self._factory() as session:
+            return set(session.scalars(select(RawArtifact.storage_key)).all())
 
     # versions
 

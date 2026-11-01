@@ -39,6 +39,14 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       CHECK_TIMEOUT_SECONDS: ${CHECK_TIMEOUT_SECONDS}
+      BLOB_DIR: /data/blobs
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:5173}
+      # The dev stack serves plain HTTP: a Secure cookie would not be usable by curl.
+      # Production MUST set SESSION_COOKIE_SECURE=true (the application default).
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-20000000}
+    volumes:
+      - blobs:/data/blobs
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -46,6 +54,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   frontend:
     build:

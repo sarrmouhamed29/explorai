@@ -11,7 +11,13 @@ SECRET = "TOPSECRET-pw"
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("APP_ENV", "DATABASE_URL", "REDIS_URL", "CHECK_TIMEOUT_SECONDS"):
+    for name in (
+        "APP_ENV",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "CHECK_TIMEOUT_SECONDS",
+        "BLOB_DIR",
+    ):
         monkeypatch.delenv(name, raising=False)
     get_settings.cache_clear()
 
@@ -29,6 +35,7 @@ def test_startup_error_never_echoes_the_secret_in_a_dsn(
     monkeypatch.setenv("DATABASE_URL", f"mysql://u:{SECRET}@127.0.0.1/db")
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("BLOB_DIR", "blobs")
 
     with pytest.raises(ValidationError) as exc_info, TestClient(create_app()):
         pass
@@ -43,6 +50,7 @@ def test_startup_succeeds_with_valid_configuration(
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost:5432/db")
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("BLOB_DIR", "blobs")
 
     with TestClient(create_app()) as client:
         assert client.get("/health/live").status_code == 200
@@ -54,6 +62,7 @@ def test_get_settings_returns_the_cached_instance(
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost:5432/db")
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("BLOB_DIR", "blobs")
 
     first = get_settings()
 

@@ -3,11 +3,19 @@ import uuid
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from explorai_db.migrate import downgrade_to_base, upgrade_to_head
-from explorai_db.models import Base, Document, DocumentVersion, RawArtifact, Source
+from explorai_db.models import (
+    Base,
+    Document,
+    DocumentVersion,
+    RawArtifact,
+    Source,
+    User,
+)
 from explorai_db.session import make_engine, make_session_factory
 from explorai_db.testing import temporary_database
 
@@ -20,6 +28,7 @@ EXPECTED_TABLES = {
     "document_versions",
     "sections",
     "ingestion_runs",
+    "users",
 }
 
 
@@ -80,12 +89,46 @@ def test_public_corpus_document_is_unique(database_url: str) -> None:
         session.add(Document(source_id=source_id, external_id="x", owner_id=None))
 
 
+def _user(session: Session, email: str | None = None) -> uuid.UUID:
+    user = User(email=email or f"{uuid.uuid4().hex}@example.org", password_hash="x")
+    session.add(user)
+    session.flush()
+    return user.id
+
+
 def test_same_document_for_two_owners_is_allowed(database_url: str) -> None:
     source_id = _source(database_url)
     factory = make_session_factory(make_engine(database_url))
     with factory.begin() as session:
-        for owner in (uuid.uuid4(), uuid.uuid4(), None):
+        for owner in (_user(session), _user(session), None):
             session.add(Document(source_id=source_id, external_id="y", owner_id=owner))
+
+
+def test_owner_must_be_an_existing_user(database_url: str) -> None:
+    source_id = _source(database_url)
+    factory = make_session_factory(make_engine(database_url))
+    with pytest.raises(IntegrityError), factory.begin() as session:
+        session.add(
+            Document(source_id=source_id, external_id="w", owner_id=uuid.uuid4())
+        )
+
+
+def test_email_unique_case_insensitive(database_url: str) -> None:
+    factory = make_session_factory(make_engine(database_url))
+    local = uuid.uuid4().hex
+    with factory.begin() as session:
+        _user(session, f"{local}@Example.org")
+    with pytest.raises(IntegrityError), factory.begin() as session:
+        _user(session, f"{local.upper()}@EXAMPLE.ORG")
+
+
+def test_upload_source_exists(database_url: str) -> None:
+    factory = make_session_factory(make_engine(database_url))
+    with factory() as session:
+        found = session.scalars(
+            select(Source).where(Source.kind == "upload", Source.name == "upload")
+        ).all()
+    assert len(found) == 1
 
 
 def test_invalid_status_rejected(database_url: str) -> None:

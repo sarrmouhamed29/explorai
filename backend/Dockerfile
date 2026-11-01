@@ -12,7 +12,12 @@ COPY pipelines/ pipelines/
 RUN uv sync --frozen --package explorai-backend --no-dev --no-editable
 
 FROM python:3.12.16-slim AS runtime
-RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home app
+# /data/blobs is created here so a fresh named volume mounted on it inherits uid 10001
+# ownership; the pipelines image does the same, so both services can share the volume.
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --no-create-home app \
+    && mkdir -p /data/blobs \
+    && chown -R app:app /data
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1

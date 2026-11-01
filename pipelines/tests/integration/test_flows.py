@@ -9,12 +9,12 @@ from prefect.testing.utilities import prefect_test_harness
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from explorai_db.blobs import LocalBlobStore
 from explorai_db.models import DocumentVersion, IngestionRun
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.flows import ingest_arxiv, ingest_web, reextract, runtime
 from explorai_pipelines.repository import Repository
 from explorai_pipelines.sources.arxiv import ArxivSource
-from explorai_pipelines.storage import LocalBlobStore
 from explorai_pipelines.testing import make_pdf, one_column_page
 
 pytestmark = pytest.mark.integration
