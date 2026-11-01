@@ -1,8 +1,12 @@
 """SQLAlchemy models of the ingestion schema.
 
-``owner_id`` is a nullable UUID without a foreign key: ``NULL`` is the shared
+``owner_id`` is a nullable foreign key to ``users``: ``NULL`` is the shared
 public corpus, a value is a private document. Uniqueness that involves it uses
 ``NULLS NOT DISTINCT`` so that public rows (owner ``NULL``) are still unique.
+
+Row-Level Security policies, the ``explorai_app`` role and the ``app_user()``
+function live in migration 0003 only: they are server-side objects that the
+models cannot express (see ``explorai_db.rls``).
 """
 
 import uuid
@@ -10,15 +14,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -30,6 +37,20 @@ def _now() -> datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(320))
+    password_hash: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# Unique on the lowercase form: "Alice@x.org" and "alice@x.org" are one account.
+Index("ix_users_email_lower", func.lower(User.email), unique=True)
 
 
 class Source(Base):
@@ -61,7 +82,9 @@ class RawArtifact(Base):
     sha256: Mapped[str] = mapped_column(String(64))
     storage_key: Mapped[str] = mapped_column(String(64))
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
 
 class Document(Base):
@@ -81,7 +104,9 @@ class Document(Base):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     # What the source says about the document (authors, publication date, abstract).
     source_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
 
 class DocumentVersion(Base):
@@ -94,14 +119,16 @@ class DocumentVersion(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"))
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE")
+    )
     artifact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("raw_artifacts.id"))
     extractor_version: Mapped[str] = mapped_column(String(32))
     text_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16))
     minhash_signature: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     duplicate_of: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("document_versions.id"), nullable=True
+        ForeignKey("document_versions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

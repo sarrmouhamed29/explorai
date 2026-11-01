@@ -1,4 +1,5 @@
 import functools
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,7 @@ from explorai_db.models import (
     IngestionRun,
     RawArtifact,
     Section,
+    User,
 )
 from explorai_pipelines.config import PipelineSettings
 from explorai_pipelines.extract.models import (
@@ -72,6 +74,15 @@ def fetched(content: bytes) -> FetchResult:
 
 def fetch_of(content: bytes) -> Callable[[], FetchResult]:
     return lambda: fetched(content)
+
+
+def new_user(factory: sessionmaker[Session]) -> uuid.UUID:
+    # owner_id is a foreign key to users, so private rows need a real user.
+    with factory.begin() as session:
+        user = User(email=f"{uuid.uuid4().hex}@example.org", password_hash="x")
+        session.add(user)
+        session.flush()
+        return user.id
 
 
 def count(factory: sessionmaker[Session], model: type[Any]) -> int:
@@ -430,9 +441,7 @@ def test_owner_id_is_stored_and_isolates_identical_bytes(
     source_id: Any,
     session_factory: sessionmaker[Session],
 ) -> None:
-    import uuid
-
-    owner_a, owner_b = uuid.uuid4(), uuid.uuid4()
+    owner_a, owner_b = new_user(session_factory), new_user(session_factory)
     content = pdf_bytes(LOREM)
     ingest(repo, store, settings, source_id, item("mine"), content, owner_id=owner_a)
     ingest(repo, store, settings, source_id, item("mine"), content, owner_id=owner_b)
@@ -486,9 +495,7 @@ def test_duplicates_are_only_looked_for_within_the_same_owner(
     source_id: Any,
     session_factory: sessionmaker[Session],
 ) -> None:
-    import uuid
-
-    owner = uuid.uuid4()
+    owner = new_user(session_factory)
     content = pdf_bytes(LOREM * 3)
     ingest(repo, store, settings, source_id, item("pub-1"), content)
     ingest(repo, store, settings, source_id, item("priv-1"), content, owner_id=owner)
