@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Protocol
 
@@ -24,6 +25,14 @@ class BlobStore(Protocol):
 
     def keys_older_than(self, seconds: float) -> list[str]:
         """Keys of blobs last written more than ``seconds`` ago."""
+        ...
+
+    def delete_if_older_than(self, key: str, seconds: float) -> bool:
+        """Delete a blob unless it was written within ``seconds``; True if deleted.
+
+        Unlike ``delete``, this is safe against a concurrent ``put`` of the same
+        bytes that refreshed the blob after it was listed as old.
+        """
         ...
 
 
@@ -66,6 +75,22 @@ class LocalBlobStore:
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def delete_if_older_than(self, key: str, seconds: float) -> bool:
+        path = self._path(key)
+        # Moving the blob aside is atomic: from now on a concurrent put either
+        # refreshed it before the move (we see the new mtime and restore it) or
+        # finds it missing and writes it again.
+        aside = path.with_name(f"{key}.gc-{uuid.uuid4().hex}")
+        try:
+            path.rename(aside)
+        except FileNotFoundError:
+            return False
+        if aside.stat().st_mtime >= time.time() - seconds:
+            aside.replace(path)
+            return False
+        aside.unlink()
+        return True
 
     def keys_older_than(self, seconds: float) -> list[str]:
         cutoff = time.time() - seconds

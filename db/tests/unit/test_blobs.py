@@ -102,3 +102,60 @@ def test_keys_older_than_skips_files_that_vanish(
 
     monkeypatch.setattr(Path, "stat", flaky_stat)
     assert store.keys_older_than(3600) == [kept]
+
+
+def _age(tmp_path: Path, key: str, seconds: float) -> None:
+    moment = time.time() - seconds
+    os.utime(tmp_path / key[:2] / key, (moment, moment))
+
+
+def test_delete_if_older_than_removes_an_old_blob(tmp_path: Path) -> None:
+    store = LocalBlobStore(tmp_path)
+    key = store.put(b"old")
+    _age(tmp_path, key, 7200)
+    assert store.delete_if_older_than(key, 3600) is True
+    with pytest.raises(FileNotFoundError):
+        store.get(key)
+    assert [p.name for p in tmp_path.rglob("*") if p.is_file()] == []
+
+
+def test_delete_if_older_than_keeps_a_refreshed_blob(tmp_path: Path) -> None:
+    store = LocalBlobStore(tmp_path)
+    key = store.put(b"re-uploaded")
+    _age(tmp_path, key, 7200)
+    assert store.keys_older_than(3600) == [key]
+    store.put(b"re-uploaded")  # refreshed after it was listed as old
+    assert store.delete_if_older_than(key, 3600) is False
+    assert store.get(key) == b"re-uploaded"
+    assert [p.name for p in tmp_path.rglob("*") if p.is_file()] == [key]
+
+
+def test_delete_if_older_than_missing_key_returns_false(tmp_path: Path) -> None:
+    assert LocalBlobStore(tmp_path).delete_if_older_than("a" * 64, 0) is False
+
+
+def test_put_rewrites_a_blob_that_vanished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = LocalBlobStore(tmp_path)
+    key = store.put(b"racy")
+    real_utime = os.utime
+
+    def collected_first(path: object, *args: object, **kwargs: object) -> None:
+        Path(str(path)).unlink()  # the collector wins between check and refresh
+        monkeypatch.setattr(os, "utime", real_utime)
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(os, "utime", collected_first)
+    assert store.put(b"racy") == key
+    assert store.get(key) == b"racy"
+
+
+def test_keys_older_than_ignores_aside_names(tmp_path: Path) -> None:
+    store = LocalBlobStore(tmp_path)
+    key = store.put(b"data")
+    aside = tmp_path / key[:2] / f"{key}.gc-{'0' * 32}"
+    aside.write_bytes(b"data")
+    old_time = time.time() - 7200
+    os.utime(aside, (old_time, old_time))
+    assert store.keys_older_than(0) == [key]

@@ -299,7 +299,8 @@ def collect_blobs(
 
     The API never deletes blobs (under row-level security it cannot see whether
     another owner's artifact shares one), so unreferenced blobs are collected
-    here. The grace period protects an upload whose rows are not committed yet.
+    here. The grace period protects an upload whose rows are not committed yet,
+    including one that re-uploads an old orphan blob (``put`` refreshes its age).
     The referenced set is read after listing the old keys: a row committed in
     between protects its blob.
     """
@@ -307,10 +308,13 @@ def collect_blobs(
     if not old:
         return 0
     referenced = repo.referenced_storage_keys()
-    doomed = [key for key in old if key not in referenced]
-    for key in doomed:
-        store.delete(key)
-    return len(doomed)
+    # The age is checked again atomically at deletion: an upload of the same bytes
+    # may have refreshed the blob since it was listed, before its row is committed.
+    return sum(
+        store.delete_if_older_than(key, grace_seconds)
+        for key in old
+        if key not in referenced
+    )
 
 
 def run_batch(

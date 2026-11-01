@@ -146,3 +146,22 @@ def test_recent_or_referenced_blob_is_kept(
     assert store.get(recent) == b"recent orphan"
     assert store.get(referenced_key)
     assert repo.referenced_storage_keys() == {referenced_key}
+
+
+def test_blob_refreshed_after_listing_survives_collection(
+    repo: Repository, store: LocalBlobStore, tmp_path: Path
+) -> None:
+    key = store.put(b"orphan")
+    age(tmp_path / "blobs", key, 7200)
+
+    class ReuploadAfterListing:
+        def __getattr__(self, name: str) -> object:
+            return getattr(store, name)
+
+        def keys_older_than(self, seconds: float) -> list[str]:
+            keys = store.keys_older_than(seconds)
+            store.put(b"orphan")  # identical upload, rows not committed yet
+            return keys
+
+    assert collect_blobs(repo, ReuploadAfterListing()) == 0  # type: ignore[arg-type]
+    assert store.get(key) == b"orphan"
