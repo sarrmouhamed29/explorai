@@ -203,3 +203,28 @@ def test_each_login_issues_a_new_token(service: AuthService) -> None:
     second = service.login("alice@example.org", PASSWORD, IP)
 
     assert first != second
+
+
+def test_successful_logins_do_not_count_against_the_ip(service: AuthService) -> None:
+    service.signup("alice@example.org", PASSWORD)
+
+    for _ in range(25):  # more than the IP limit of 20
+        assert service.login("alice@example.org", PASSWORD, IP)
+
+
+def test_refused_attempts_are_not_counted_as_failures(service: AuthService) -> None:
+    service.signup("alice@example.org", PASSWORD)
+    for _ in range(5):
+        with pytest.raises(InvalidCredentials):
+            service.login("alice@example.org", "wrong password!!", IP)
+
+    # Refused attempts on the locked email must not use up the IP's budget:
+    # 15 more failures on other emails are still allowed from this address.
+    for _ in range(10):
+        with pytest.raises(TooManyAttempts):
+            service.login("alice@example.org", PASSWORD, IP)
+    for n in range(15):
+        with pytest.raises(InvalidCredentials):
+            service.login(f"user{n}@example.org", PASSWORD, IP)
+    with pytest.raises(TooManyAttempts):
+        service.login("fresh@example.org", PASSWORD, IP)

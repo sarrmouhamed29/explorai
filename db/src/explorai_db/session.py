@@ -14,7 +14,9 @@ def make_engine(database_url: str) -> Engine:
     url = make_url(database_url)
     if url.drivername == "postgresql":
         url = url.set(drivername="postgresql+psycopg")
-    return create_engine(url, pool_pre_ping=True)
+    # hide_parameters: bound values (a password hash on sign-up) never appear in
+    # an error message, so not in a logged traceback either.
+    return create_engine(url, pool_pre_ping=True, hide_parameters=True)
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
