@@ -7,6 +7,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from explorai_backend.api.auth import router as auth_router
 from explorai_backend.api.documents import router as documents_router
@@ -56,6 +57,9 @@ def create_app() -> FastAPI:
     app.add_middleware(OriginCheckMiddleware)
     app.add_exception_handler(RequestValidationError, validation_error)
     app.add_exception_handler(OperationalError, database_unavailable)
+    # Every pooled connection busy for pool_timeout seconds: same answer, the
+    # database cannot serve this request now.
+    app.add_exception_handler(PoolTimeout, database_unavailable)
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(documents_router)

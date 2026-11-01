@@ -33,9 +33,18 @@ def get_scoped_sessions(
     return ScopedSessions(factory)
 
 
+# A Redis that accepts the connection but never answers would otherwise hang the
+# request forever; with a timeout redis-py raises and the route answers 503.
+REDIS_TIMEOUT_SECONDS = 2
+
+
 @lru_cache
 def get_redis() -> redis.Redis:
-    return redis.Redis.from_url(str(get_settings().redis_url))
+    return redis.Redis.from_url(
+        str(get_settings().redis_url),
+        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+        socket_timeout=REDIS_TIMEOUT_SECONDS,
+    )
 
 
 @lru_cache

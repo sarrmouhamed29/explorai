@@ -20,7 +20,7 @@ All business routes are under `/api/v1`; errors use FastAPI's `{"detail": ...}`.
 | `POST /logout` | 204; deletes the session server-side and clears the cookie (also 204 without a cookie) |
 | `GET /me` | the current user, or 401 |
 
-Sessions live in Redis as `session:<sha256(token)>` (the raw token is never stored), expire after `SESSION_IDLE_SECONDS` without use and at most `SESSION_MAX_SECONDS` after login. Redis or PostgreSQL down gives 503 (fail closed).
+Sessions live in Redis as `session:<sha256(token)>` (the raw token is never stored), expire after `SESSION_IDLE_SECONDS` without use and at most `SESSION_MAX_SECONDS` after login. Redis or PostgreSQL down gives 503 (fail closed). Slow counts as down: the Redis client gives up after 2 seconds (`socket_connect_timeout`, `socket_timeout`), a PostgreSQL connection attempt after 5 (`connect_timeout`), and a connection pool exhausted for its `pool_timeout` also answers 503 instead of 500. A client that disconnects mid-upload ends the request quietly (logged at `INFO`, reservation released).
 
 ### Documents (`/api/v1/documents`, login required)
 

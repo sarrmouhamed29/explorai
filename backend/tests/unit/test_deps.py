@@ -34,6 +34,15 @@ def test_redis_client_is_built_lazily_and_cached() -> None:
     assert client.connection_pool.connection_kwargs["db"] == 15
 
 
+def test_redis_client_gives_up_on_a_hanging_server() -> None:
+    # Without timeouts a stuck Redis hangs the request instead of answering 503.
+    kwargs = deps.get_redis().connection_pool.connection_kwargs
+
+    assert kwargs["socket_connect_timeout"] == deps.REDIS_TIMEOUT_SECONDS
+    assert kwargs["socket_timeout"] == deps.REDIS_TIMEOUT_SECONDS
+    assert deps.REDIS_TIMEOUT_SECONDS == 2
+
+
 def test_session_factory_is_built_lazily_and_cached() -> None:
     factory = deps.get_session_factory()
 

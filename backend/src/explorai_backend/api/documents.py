@@ -14,6 +14,7 @@ import redis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from explorai_backend.api.auth import CurrentUser
 from explorai_backend.api.pagination import (
@@ -268,6 +269,13 @@ async def upload_document(
             data = await read_capped(request.stream(), settings.upload_max_bytes)
         except TooLarge:
             raise _too_large() from None
+        except ClientDisconnect:
+            # The client went away mid-body: nobody reads the answer, so end
+            # without a traceback; the reservation is released below.
+            logger.info("upload interrupted by the client")
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "upload interrupted"
+            ) from None
         try:
             result = await run_in_threadpool(uploads.upload, user.id, data, filename)
         except NotPdf:
