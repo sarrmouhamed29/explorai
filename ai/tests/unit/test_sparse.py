@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from explorai_ai.sparse import encode_document, encode_query
+from explorai_ai.sparse import encode_document, encode_query, tokenize
 
 HELLO_INDEX = 3932620535  # blake2b(b"hello", digest_size=4), big-endian, computed once
 
@@ -54,3 +54,36 @@ def test_case_and_punctuation_are_ignored() -> None:
 def test_empty_text_gives_empty_vector() -> None:
     assert encode_document("...").indices == []
     assert encode_query("").values == []
+
+
+def test_accented_word_equals_its_unaccented_form() -> None:
+    accented = "caf" + chr(0xE9)
+    assert tokenize(accented) == ["cafe"]
+    assert encode_document(accented) == encode_document("cafe")
+
+
+def test_accented_word_is_one_token() -> None:
+    assert tokenize(chr(0xE9) + "t" + chr(0xE9)) == ["ete"]
+    assert tokenize("fran" + chr(0xE7) + "ais") == ["francais"]
+
+
+def test_french_sentence_distinct_tokens() -> None:
+    e = chr(0xE9)
+    sentence = f"L{e}t{e} dernier, le fran" + chr(0xE7) + f"ais a visit{e} le caf{e}."
+    assert len(tokenize(sentence)) == 8
+    assert len(encode_query(sentence).indices) == 7  # "le" appears twice
+
+
+def test_cjk_input_produces_tokens() -> None:
+    assert (
+        len(
+            encode_document(
+                chr(0x4F60) + chr(0x597D) + chr(0x4E16) + chr(0x754C)
+            ).indices
+        )
+        >= 1
+    )
+
+
+def test_digits_and_mixed_alphanumerics_and_underscore() -> None:
+    assert tokenize("GPT4 v2.0 snake_case") == ["gpt4", "v2", "0", "snake", "case"]

@@ -8,6 +8,7 @@ make indexed vectors unmatchable after a restart.
 
 import hashlib
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 
@@ -21,8 +22,14 @@ class SparseVector:
 
 
 def tokenize(text: str) -> list[str]:
-    """Lowercase and split on non-alphanumeric characters."""
-    return [t for t in re.split(r"[^0-9a-z]+", text.lower()) if t]
+    """Lowercase, fold accents, split on anything that is not a letter or digit.
+
+    NFKD separates accents into combining marks, which are dropped, so "cafe" and
+    "cafe" with an accent share a token. Non-Latin scripts are kept as word tokens.
+    """
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    folded = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return re.findall(r"[^\W_]+", folded)
 
 
 def _index(token: str) -> int:
