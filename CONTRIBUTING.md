@@ -73,13 +73,30 @@ Run all hooks on every file at any time with `uv run pre-commit run --all-files`
 
 A change is done when all of the following hold:
 
-1. Tests cover the new behaviour and pass (`pytest` once per Python package: `backend`, `db`, `pipelines`, each enforcing the 80% coverage gate; Vitest for the frontend).
+1. Tests cover the new behaviour and pass (`pytest` once per Python package: `backend`, `db`, `pipelines`, `ai`, each enforcing the 80% coverage gate; Vitest for the frontend). Tests never touch the network or need an API key: model providers are replaced by the fakes of `ai/` (`RAG_PROVIDER=fake`).
 2. Lint, format and type checks are green: `ruff check`, `ruff format --check` and `mypy` (strict) for Python (mypy is run once per package with `--config-file <package>/pyproject.toml`, otherwise it ignores the package's strict settings); ESLint, Prettier and `tsc` for the frontend.
 3. If the API changed, `backend/openapi.json` and `frontend/src/api/schema.d.ts` are regenerated and committed (see below). CI fails on drift.
 4. Documentation is updated in the same pull request: package READMEs, the root README, `docs/concepts/`, and a new ADR in `docs/adr/` for any significant technical choice.
 5. Every new sub-project spec contains an "evaluation criteria" section (how we know it works) and a "threats and guardrails" section (what can go wrong and how we protect against it).
 6. No secrets in the diff or the history. Only placeholders in `.env.example`.
 7. CI is green on the pull request.
+
+The Python checks, package by package (one call each: a single pytest or mypy call across packages mixes their configurations):
+
+```bash
+uv run ruff check backend db pipelines ai
+uv run ruff format --check backend db pipelines ai
+uv run mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
+uv run mypy --config-file db/pyproject.toml db/src db/tests
+uv run mypy --config-file pipelines/pyproject.toml pipelines/src pipelines/tests
+uv run mypy --config-file ai/pyproject.toml ai/src ai/tests
+uv run --package explorai-backend pytest backend/tests
+uv run pytest db/tests
+uv run pytest pipelines/tests
+uv run pytest ai/tests
+```
+
+The integration tests need the Compose stack (PostgreSQL, Redis, Qdrant) and the variables of `infra/.env` exported; without services, add `-m "not integration" --no-cov` (the coverage gate fails on a partial run). Real API keys never go in the repository, in Compose files or in CI; `gitleaks` checks every commit.
 
 Regenerating the API contract and client after a backend route or schema change:
 

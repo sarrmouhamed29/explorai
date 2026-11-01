@@ -1,6 +1,6 @@
 # Sub-project 3: RAG, design spec
 
-Part of the master plan (`plan.md`). Date: 2026-11-01. Status: draft, awaiting review.
+Part of the master plan (`plan.md`). Date: 2026-11-01. Status: approved, then implemented on `feature/rag`; section 14 lists what the plan and the reviews changed.
 
 ## 1. Goal
 
@@ -140,3 +140,39 @@ Compose adds a `qdrant` service: image pinned to an exact tag, port bound to `12
 ## 13. Dependencies and next step
 
 Depends on sub-projects 1 and 2. After spec approval, write the implementation plan; no code or dependency is added before the plan is approved. Sub-project 4 (Evaluation) follows and will measure each stage of this pipeline.
+
+## 14. Refinements during planning
+
+The implementation plan (`docs/superpowers/plans/2026-11-01-rag.md`) and the review rounds of its tasks settled or changed the points below. Sections 4 to 11 above are kept as approved, except where they were already corrected (the `index_name` key of section 4); this section is what was built. The reasons are in ADRs [0011](../../adr/0011-qdrant-and-retrieval-isolation.md) to [0014](../../adr/0014-providers-behind-interfaces.md) and in [`docs/concepts/03-rag.md`](../../concepts/03-rag.md).
+
+**Data and indexing**
+
+1. **`chunk_index_entries` is keyed by `index_name`**, the Qdrant collection name of the embedding model *and* dimension (`chunks_<model>_<dimension>`, `RagSettings.index_name`, at most 128 characters), not by the model alone. Keyed by the model, a dimension change, or a lost collection recreated empty, would have switched the alias to an empty collection that no pass refills. If the collection of the current index is missing while entries for it exist, `index-pending` clears those entries and rebuilds it from PostgreSQL.
+2. **`document_versions.chunked_at`** marks a version as chunked, even into zero chunks, so it is not chunked again on every pass. Chunk rows of older versions are kept (they go with their version by cascade); only Qdrant points are pruned.
+3. **Chunking** uses 400-word windows with 60 words of overlap (15%), skips sections under 5 words and stops at 500 chunks per document. The stored chunk text is the body only: the heading is prefixed to the text given to the encoders (`embedding_text`), not repeated in the stored text (section 4 said "repeated at the start of each chunk").
+4. **One eligibility rule.** "The latest `ok` version, canonical" is one SQL expression, `explorai_ai.store.is_eligible_version` (ties on `created_at` broken by the larger id), used by both the API's `ChunkStore` and the pipeline's repository; an integration test checks that both select the same chunks. A duplicate document counts as `indexed` only when its canonical version is still the latest canonical `ok` version of its own document. Migration 0005 adds the index `ix_document_versions_document_status_created` for that subquery.
+5. **Sparse vectors are computed by our own code** (Unicode word tokens with accents folded, `blake2b` 32-bit hashes, BM25-style saturating term frequency with `k1 = 1.2`, Qdrant's IDF modifier at query time) instead of a model downloaded on first use, so tests, CI and containers need nothing.
+6. **Indexing deployments** run under advisory locks `INDEX_LOCK = 4242002` and `PRUNE_LOCK = 4242003` (the catch-up key stays `4242001`), every 30 s and every 3600 s; `serve` registers them only when `RAG_PROVIDER` is set (otherwise a warning, and the ingestion deployments keep working). A provider error stops a pass cleanly (`embedding_failed` counter); the alias moves only after a pass that leaves nothing pending. `prune-index` lists point ids before eligible ids, so it never deletes a point indexed meanwhile.
+
+**Qdrant and retrieval**
+
+7. **Image `qdrant/qdrant:v1.20.0`**, port bound to `127.0.0.1`, API key required, health check by `bash` opening a TCP connection (the image has no `curl` or `wget`). Alias `chunks_current`; the public corpus payload value is `"public"`.
+8. **Qdrant errors:** a 404 on the alias or collection (nothing indexed yet) is an empty result, so the answer is a refusal, not a `503`; every other error response (5xx, but also non-404 4xx such as a vector-dimension error during a re-index, 401/403, 429) and an unreachable server raise `RetrievalUnavailable` (`503`). The Qdrant client timeout is the provider timeout rounded up to whole seconds (a sub-second setting never becomes 0).
+9. **The retriever calls the filter builder through its module** (`scoping.build_scope_filter`) so the isolation test can replace it; the AST test that forbids building filters elsewhere exempts `scope.py` and `index.py` by file name.
+10. **The refusal threshold applies only after a successful rerank.** With reranking disabled or failed, `best_score` is `None` (RRF scores depend only on ranks and cannot be compared with a relevance threshold) and the generator decides. A reranker returning no usable hit counts as a failure.
+
+**Generation and citations**
+
+11. **Providers:** Voyage over REST with `httpx` (testable with `MockTransport`), Anthropic through its official SDK with an injectable client and SDK retries off (`retry_transient` is the only retry layer). Defaults `voyage-4` at 1024 dimensions and `rerank-2.5` (read through a summarising fetch tool: to re-verify before the first real call), `claude-sonnet-5-5` and `claude-haiku-5-5`.
+12. **Prompt bounds:** each source is capped at 8000 characters (above the roughly 3000 of a normal 400-word chunk) and the question at 2000; quotes are still verified against the full stored chunk. Titles and headings lose quotes, `=`, angle brackets and control characters so they cannot escape their attribute. The stop reasons `max_tokens`, `refusal` and `model_context_window_exceeded` are errors.
+13. **Citation floor: at least 2 words and 10 characters** after normalisation (NFKC, case folding, whitespace collapsed, surrounding quotation marks and ellipses stripped). The first ruling (3 characters) let "the" verify against almost any chunk. The quote returned is the model's text matched after normalisation, not the source's exact span.
+14. **Errors to `503`:** transient generation errors propagate as `ProviderUnavailable`; other generation errors are wrapped in `GenerationFailed` (a `ProviderUnavailable`), so the route maps exactly `ProviderUnavailable` and `RetrievalUnavailable` to `503`. Database connection errors and pool timeouts answer `503` through the existing handlers.
+
+**API and configuration**
+
+15. **The reservation is given back on every outcome that is not served** (over the limit, a `document_id` that is not visible (`404`), a provider, Qdrant or database outage, a bug), not only on provider failures; an answer or a refusal keeps it. The give-back is an optimistic `WATCH`/`MULTI` decrement, dropped under a concurrent change (strict side).
+16. **Environment names:** the library's own settings use the `RAG_` prefix (`RAG_PROVIDER`, `RAG_ASK_MAX_PER_HOUR`, ...); `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `QDRANT_URL` and `QDRANT_API_KEY` keep their usual names. Blank keys count as missing. An invalid configuration stops the backend at startup with a message naming the environment variables (`RAG_PROVIDER`), never their values. `RAG_QUESTION_MAX_CHARS` exists but the route enforces a fixed 2000.
+17. **Packaging and CI:** `ai/` is a fourth workspace member, flat (`explorai_ai.retriever`, no `rag/` subpackage yet); both Dockerfiles copy it; the backend has a dev-only dependency on `pipelines` for the RAG integration tests; the `ai` ruff, mypy and pytest steps and the Qdrant service container run in the CI `backend` job.
+18. **Measurement:** `explorai_ai.measure` wraps the retriever to record the kept chunks instead of changing the pipeline, asks on the `public` scope with a placeholder user, and also reports false refusals. The 14 questions are unvalidated by the maintainer and no real run exists (`docs/evaluation/rag-baseline.md`).
+
+**Verification status.** Docker was unresponsive during the whole implementation: none of the integration suites (`db`, `ai`, `pipelines`, `backend`, including the search-isolation suite and its mutation proof), the smoke test, the image builds or the Qdrant health check has run. CI is their first run, and nothing merges before it is green. The real providers have never been called.
