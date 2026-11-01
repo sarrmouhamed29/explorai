@@ -27,10 +27,11 @@ class RagSettings(BaseSettings):
     qdrant_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("QDRANT_API_KEY")
     )
-    # Placeholders until the real provider models are verified (plan, Task 5).
-    embedding_model: str = "fake-embedding"
-    embedding_dimension: int = Field(default=64, gt=0)
-    rerank_model: str = "fake-rerank"
+    # Voyage models, checked against docs.voyageai.com on 2026-11-01: voyage-4
+    # supports output_dimension 256/512/1024/2048 (1024 is its default).
+    embedding_model: str = "voyage-4"
+    embedding_dimension: int = Field(default=1024, gt=0)
+    rerank_model: str = "rerank-2.5"
     generation_model: str = "claude-sonnet-5-5"
     rewrite_model: str = "claude-haiku-5-5"
     rewrite_enabled: bool = True
