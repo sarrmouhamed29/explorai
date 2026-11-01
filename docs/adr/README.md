@@ -11,7 +11,9 @@ An ADR records one significant technical choice: the context, the decision, the 
 | [0005](0005-ai-library-independent-of-backend.md) | The `ai/` library does not depend on the backend |
 | [0006](0006-prefect-for-orchestration.md) | Prefect for orchestration and scheduling |
 | [0007](0007-layered-raw-and-normalised-storage.md) | Layered storage: immutable raw artifacts, then versioned text |
-| [0008](0008-shared-db-package.md) | A shared `db/` package owns the schema |
+| [0008](0008-shared-db-package.md) | A shared `db/` package owns the schema (amended: it is the persistence layer, blobs included) |
+| [0009](0009-opaque-sessions-over-jwt.md) | Opaque server-side sessions instead of JWT |
+| [0010](0010-row-level-security-defence-in-depth.md) | Row-Level Security as defence in depth |
 
 ## Template
 

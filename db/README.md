@@ -22,6 +22,14 @@ Migration 0003 enables RLS (without `FORCE`) on `documents`, `raw_artifacts`, `d
 
 The table owner bypasses the policies, so the pipeline keeps ingesting for everyone. Any code that serves a user must query through `explorai_db.rls.scoped_session(factory, user_id)`: it opens one transaction, runs `SET LOCAL ROLE explorai_app` and sets the identity, so both end with the transaction and a pooled connection never keeps them. The downgrade keeps the role, which is cluster-wide.
 
+Migration 0004 adds `documents.created_at` (the keyset pagination key), backfilled from the fetch time of the oldest matching artifact (or the migration time), with an index on `(created_at DESC, id DESC)`. `make_engine` hides SQL parameters from error messages, so a failing statement never puts a password hash in a log.
+
+Two limits to remember (ADR [0010](../docs/adr/0010-row-level-security-defence-in-depth.md)): a `Session` used after its `scoped_session` block runs again as the owner (RLS bypassed), so use it only inside the block; and `SET LOCAL ROLE` does not stop injected SQL from running `RESET ROLE`. `explorai_app` can read `users.password_hash` because login needs the lookup.
+
+## Blob store
+
+`explorai_db.blobs` is the content-addressed store shared by the API (writes uploads) and the pipelines (reads them, collects garbage). The key is the SHA-256 of the bytes, so `put` is idempotent and also refreshes the modification time of an existing blob (a collector must not delete an old orphan that a new upload just referenced). `keys_older_than(seconds)` lists candidates and `delete_if_older_than(key, seconds)` renames the file aside atomically, re-checks its age, then deletes it or restores it. Only the pipelines delete blobs; the API cannot know, under RLS, whether another owner's artifact shares one.
+
 ## Run the migrations
 
 `DATABASE_URL` is the only input (a `postgresql://` URL). From the repository root, with the stack's PostgreSQL running (see the root README):

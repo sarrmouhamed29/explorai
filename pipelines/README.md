@@ -20,6 +20,8 @@ arXiv / web        allowlist,      blob store +     PDF/HTML     text        exa
 - `flows/`: thin Prefect flows around `ingest.py`; `__main__.py` is the command line.
 - `measure.py`: extraction quality on the annotated sample.
 
+Uploaded private PDFs are processed here too: the `process-pending` deployment (every 30 seconds, `python -m explorai_pipelines process-pending` for one run) calls the same catch-up code (`reextract`), which takes the advisory lock `CATCH_UP_LOCK` (`pg_try_advisory_lock`, session level, non-blocking) so the nightly batch and `process-pending` never extract at the same time; a run that does not get the lock reports `skipped` and moves on. It then runs `collect_blobs`, which deletes blobs that no artifact references and that are older than one hour (`BLOB_GRACE_SECONDS`): the API never deletes blobs, and the grace period protects an upload whose rows are not committed yet. `serve` runs two deployments: `nightly-arxiv` and `process-pending`. The concepts are in `docs/concepts/02-core-backend.md`.
+
 Replaying a batch changes nothing. A changed source file creates a new version of the same document. A new extractor version creates new versions from the stored bytes, with no network. Every batch also finishes what earlier runs left half-done: stored artifacts without a version for the current extractor are extracted at the end of the run (`recovered` in the run counters), so an item that dropped out of the latest listing is not lost. The title and metadata given by the source (arXiv API) win over the title found in the file.
 
 ## Configuration
@@ -44,7 +46,7 @@ cp .env.example infra/.env
 docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --build --wait
 ```
 
-A one-off run from the host, with PostgreSQL up and the variables exported:
+The `pipelines` container mounts the `blobs` volume that the backend also mounts. A one-off run from the host, with PostgreSQL up and the variables exported:
 
 ```bash
 set -a; . infra/.env; set +a
@@ -53,6 +55,7 @@ mkdir -p var/blobs
 uv run python -m explorai_pipelines ingest-arxiv --query "cat:cs.CL" --max-results 5
 uv run python -m explorai_pipelines ingest-web https://example.org/some-page
 uv run python -m explorai_pipelines reextract --version pdf-2     # after bumping an extractor version
+uv run python -m explorai_pipelines process-pending               # one pass over uploads, then blob cleanup
 ```
 
 Inside the stack: `docker compose --env-file infra/.env -f infra/docker-compose.yml exec pipelines python -m explorai_pipelines ingest-arxiv --query cat:cs.CL --max-results 2`.
@@ -86,4 +89,5 @@ Results and the failure analysis are in `docs/evaluation/extraction-baseline.md`
 - The near-duplicate scan is linear in the number of stored signatures.
 - The `failed` version status exists in the schema but is not written: an unexpected error, a timeout or a killed extraction worker stores no version, so the next run retries it. Only a content verdict (`unextractable`) is stored.
 - Duplicates are searched within one owner only: a private document is never the canonical version of a public one.
-- Two runs at the same time are not coordinated (no lock): data stays consistent, but one run can report a collision as a failed item and the two in-memory duplicate indexes do not see each other.
+- The catch-up extraction is serialised by an advisory lock, but two ingestion batches (`ingest-arxiv`, `ingest-web`) at the same time are not coordinated: data stays consistent, but one run can report a collision as a failed item and the two in-memory duplicate indexes do not see each other.
+- An upload that keeps failing for a transient reason is retried every 30 seconds; there is no retry cap yet.

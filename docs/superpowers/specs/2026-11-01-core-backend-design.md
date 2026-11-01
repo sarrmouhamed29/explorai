@@ -1,6 +1,6 @@
 # Sub-project 2: Core backend, design spec
 
-Part of the master plan (`plan.md`). Date: 2026-11-01. Status: draft, awaiting review.
+Part of the master plan (`plan.md`). Date: 2026-11-01. Status: implemented. Where sections 5, 7, 8 and 4 differ from the code, section 15 (refinements decided while planning) wins.
 
 ## 1. Goal
 
@@ -155,3 +155,16 @@ No response and no log line contains a password, a session token, a password has
 ## 14. Dependencies and next step
 
 Depends on sub-projects 0 and 1. After spec approval, write the implementation plan; no code or dependency is added before the plan is approved. Sub-project 3 (RAG) follows and will query documents through the same isolation layers.
+
+## 15. Refinements during planning
+
+The implementation plan improved on this spec in six places. Sections 4, 5, 7 and 8 above are kept as originally approved; this section is what was built. The reasons are in ADRs [0009](../../adr/0009-opaque-sessions-over-jwt.md) and [0010](../../adr/0010-row-level-security-defence-in-depth.md).
+
+1. **`SET LOCAL ROLE explorai_app` per transaction** (inside `scoped_session`) instead of `SET ROLE` per connection (section 5). The role and the identity both end with the transaction, so a pooled connection can never keep either.
+2. **RLS is `ENABLE`d without `FORCE`** (section 5). The API never runs as the table owner (it always switches role), while the pipeline, which runs as the owner and ingests for everyone, must keep bypassing RLS. An architecture test asserts that no backend module creates a session without `scoped_session`; it works on the AST, so it ignores comments and sees through aliased imports.
+3. **Upload is a raw body** (`POST /api/v1/documents?filename=paper.pdf`, `Content-Type: application/pdf`) instead of multipart (sections 7 and 8). Starlette receives a multipart body completely before the handler runs, so a streamed size cap is only possible on a raw body.
+4. **An upload is idempotent per owner** (section 7). The document's `external_id` is the SHA-256 of the bytes, so uploading the same file twice returns the existing document with `200` (the first upload answers `202`).
+5. **Blobs are not deleted by the API** (sections 4 and 8). Under RLS the API cannot see whether another owner's artifact shares a blob, so `process-pending` garbage-collects blobs referenced by no artifact and older than one hour (the grace period protects an upload whose rows are not committed yet). Deleting a document therefore removes its rows in one transaction and leaves the file to the collector.
+6. **Foreign keys change in migration 0003** (section 4). `document_versions.document_id` gets `ON DELETE CASCADE` and `document_versions.duplicate_of` gets `ON DELETE SET NULL`, so deleting a document never trips over versions of the same owner that marked it canonical.
+
+Smaller details settled in the plan and review rounds: login answers `204` with the cookie; migration 0004 adds `documents.created_at` (the keyset pagination key); `make_engine` hides SQL parameters; `422` answers omit the rejected `input`; database and Redis errors answer `503`; the document status follows the latest version while sections keep serving the latest `ok` version; only uploads that create a document consume the hourly budget; `explorai_app` can read `users.password_hash` and `SET LOCAL ROLE` is not a barrier against SQL injection (limitations recorded in ADR 0010 and `backend/README.md`).

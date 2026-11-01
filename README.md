@@ -18,7 +18,15 @@ Sub-project 1, **Ingestion**, is implemented on top of it: a pipeline that colle
 - Compose gains a one-shot `migrate` service, a Prefect server (<http://127.0.0.1:4200>) and the `pipelines` service.
 - Measured baseline for PDF extraction: [`docs/evaluation/extraction-baseline.md`](docs/evaluation/extraction-baseline.md).
 
-There is no user-facing feature yet (no search, no answers). Sub-project 2 (Core backend) is next. The full roadmap is in [`plan.md`](plan.md).
+Sub-project 2, **Core backend**, is implemented on top of both: a multi-user API under `/api/v1`.
+
+- Accounts (Argon2id passwords, opaque Redis sessions in an `HttpOnly` cookie, login rate limits) and documents (list with keyset pagination, read, sections, private PDF upload, delete).
+- Isolation between users in two layers, repository filters and PostgreSQL Row-Level Security, proved by an automated suite over every route.
+- Uploads are processed by the pipelines service every 30 seconds; the blob store now lives in `db/`.
+- Concepts and interview Q&A: [`docs/concepts/02-core-backend.md`](docs/concepts/02-core-backend.md); API and `curl` examples: [`backend/README.md`](backend/README.md#api).
+- The end-to-end smoke test and the integration suites were written but have not yet been run against this code on the maintainer's machine (Docker was unavailable); run them, or let CI, before merging.
+
+There is still no search or answer feature, and no login page in the frontend (sub-project 6). Sub-project 3 (RAG) is next. The full roadmap is in [`plan.md`](plan.md).
 
 ## Prerequisites
 
@@ -68,7 +76,7 @@ Backend unit tests (no services needed):
 uv run --package explorai-backend pytest backend/tests -m "not integration"
 ```
 
-Backend integration tests need the Compose stack running and the variables from `infra/.env` exported. The exact steps are in [`backend/README.md`](backend/README.md#test).
+Backend integration tests (including the user-isolation suite) need the Compose stack running and the variables from `infra/.env` exported. The exact steps are in [`backend/README.md`](backend/README.md#test).
 
 Each Python package is tested on its own (each has its own configuration and coverage gate); `db` and `pipelines` integration tests need `DATABASE_URL` pointing at a PostgreSQL superuser:
 
@@ -86,7 +94,7 @@ pnpm --dir frontend typecheck
 pnpm --dir frontend lint
 ```
 
-End-to-end smoke test (builds and starts the whole stack under its own Compose project name, checks the backend, the frontend and the proxied health route, then tears it down):
+End-to-end smoke test (builds and starts the whole stack under its own Compose project name, checks the backend, the frontend and the proxied health route, then signs up two users, uploads a PDF, waits for the pipeline to process it and checks that the second user gets a 404, then tears it down; allow up to a few minutes):
 
 ```bash
 bash infra/smoke.sh
@@ -100,9 +108,9 @@ The backend reads its configuration from environment variables only and refuses 
 ## Repository layout
 
 ```
-backend/            FastAPI service (src/explorai_backend, tests, Dockerfile, openapi.json)
+backend/            FastAPI service: auth, documents API (src/explorai_backend, tests, Dockerfile, openapi.json)
 frontend/           Vite + React + TypeScript app, generated API client, Vitest tests, Dockerfile
-db/                 shared schema: models, Alembic migrations, tests
+db/                 shared persistence: models, Alembic migrations, RLS session, blob store, tests
 pipelines/          ingestion: sources, extraction, cleaning, dedup, Prefect flows, Dockerfile
 infra/              docker-compose.yml and smoke.sh
 docs/adr/           Architecture Decision Records
@@ -117,7 +125,7 @@ pyproject.toml      uv workspace root (members: backend, db, pipelines)
 ## More documentation
 
 - [`plan.md`](plan.md): master plan and architecture decisions
-- [`docs/`](docs/): [ADRs](docs/adr/README.md), [concept notes](docs/concepts/00-foundations.md), [ingestion concepts](docs/concepts/01-ingestion.md), specs and plans
+- [`docs/`](docs/): [ADRs](docs/adr/README.md), [concept notes](docs/concepts/00-foundations.md), [ingestion concepts](docs/concepts/01-ingestion.md), [core backend concepts](docs/concepts/02-core-backend.md), specs and plans
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): branching, commits, hooks, definition of done, releases
 - [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md), [`db/README.md`](db/README.md), [`pipelines/README.md`](pipelines/README.md)
 
