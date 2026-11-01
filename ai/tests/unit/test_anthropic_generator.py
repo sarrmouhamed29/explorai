@@ -1,3 +1,4 @@
+import uuid
 from types import SimpleNamespace
 from typing import Any
 
@@ -5,9 +6,12 @@ import anthropic
 import httpx2
 import pytest
 
+from explorai_ai.config import RagSettings
 from explorai_ai.errors import ProviderError, ProviderRateLimited, ProviderUnavailable
 from explorai_ai.models import PromptSource
+from explorai_ai.pipeline import AnswerPipeline
 from explorai_ai.providers.anthropic_generator import AnthropicGenerator
+from explorai_ai.retriever import Candidate, RetrievalResult
 
 SOURCES = [PromptSource(number=1, title="T", heading="H", text="alpha beta")]
 GOOD_INPUT = {
@@ -74,7 +78,8 @@ def test_answer_forces_the_tool_and_parses_the_result() -> None:
     assert call["temperature"] == 0
     assert call["tool_choice"] == {"type": "tool", "name": "answer_question"}
     assert [tool["name"] for tool in call["tools"]] == ["answer_question"]
-    assert 0 < call["max_tokens"] <= 4096
+    # Room for a long answer with its quotes: a cut-off answer is unusable.
+    assert call["max_tokens"] == 4096
     assert call["timeout"] == 7.0
     assert "only from the sources" in call["system"].lower()
     assert "[1] alpha beta" in call["messages"][0]["content"]
@@ -193,7 +198,6 @@ def test_rewrite_provider_errors_propagate() -> None:
     ("reason", "fragment"),
     [
         ("max_tokens", "cut off"),
-        ("refusal", "refused"),
         ("model_context_window_exceeded", "context window"),
     ],
 )
@@ -226,3 +230,48 @@ def test_sdk_errors_without_a_status_are_mapped() -> None:
         assert "sk-secret" not in str(caught.value)
         assert caught.value.__cause__ is None
         assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize("content", [[], [tool_block(GOOD_INPUT)]])
+def test_a_model_refusal_is_insufficient_not_an_error(
+    content: list[SimpleNamespace],
+) -> None:
+    # stop_reason "refusal": the model declined (safety). Not an outage and not
+    # retryable, so not a 503: an explicit "insufficient", whatever the content.
+    client = StubClient(message(*content, stop_reason="refusal"))
+    result = generator(client).answer("q", SOURCES)
+    assert result.status == "insufficient"
+    assert (result.answer, result.citations) == ("", [])
+    assert (result.usage.input_tokens, result.usage.output_tokens) == (120, 30)
+    assert len(client.calls) == 1
+
+
+def test_a_model_refusal_becomes_an_insufficient_evidence_answer() -> None:
+    client = StubClient(message(stop_reason="refusal"))
+    retrieved = RetrievalResult(
+        [
+            Candidate(
+                chunk_id=uuid.uuid4(),
+                document_id=uuid.uuid4(),
+                version_id=uuid.uuid4(),
+                document_title="T",
+                heading="H",
+                text="alpha beta",
+                score=0.9,
+            )
+        ],
+        0.9,
+    )
+
+    class Fixed:
+        def retrieve(self, *args: Any, **kwargs: Any) -> RetrievalResult:
+            return retrieved
+
+    pipeline = AnswerPipeline(Fixed(), generator(client), RagSettings(provider="fake"))
+    result = pipeline.ask(uuid.uuid4(), "q")
+    assert (result.status, result.answer, result.citations) == (
+        "insufficient_evidence",
+        None,
+        [],
+    )
+    assert result.usage.input_tokens == 120  # the tokens were spent all the same

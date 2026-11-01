@@ -22,7 +22,9 @@ from explorai_ai.prompt import (
 )
 from explorai_ai.retry import retry_transient
 
-ANSWER_MAX_TOKENS = 1024
+# Room for a long answer plus its verbatim quotes: a cut-off answer (stop reason
+# max_tokens) is unusable and would fail the same way on every retry.
+ANSWER_MAX_TOKENS = 4096
 REWRITE_MAX_TOKENS = 256
 
 
@@ -49,9 +51,11 @@ def _call(client: Any, **kwargs: Any) -> Any:
 
 _BAD_STOP_REASONS = {
     "max_tokens": "the answer was cut off (max_tokens)",
-    "refusal": "the model refused to answer (refusal)",
     "model_context_window_exceeded": "the prompt exceeded the context window",
 }
+# The model declined to answer (its safety stop): a decision about this question
+# and these sources, not an outage, so an explicit refusal rather than a 503.
+REFUSAL_STOP_REASON = "refusal"
 
 
 def _check_stop_reason(message: Any) -> None:
@@ -126,6 +130,10 @@ class AnthropicGenerator:
                 timeout=self._timeout,
             )
         )
+        if getattr(message, "stop_reason", None) == REFUSAL_STOP_REASON:
+            # Whatever partial content came with it is ignored: no citation of
+            # a refused answer is ever shown.
+            return GeneratedAnswer("insufficient", "", [], _usage(message))
         _check_stop_reason(message)
         for block in getattr(message, "content", None) or []:
             if (
