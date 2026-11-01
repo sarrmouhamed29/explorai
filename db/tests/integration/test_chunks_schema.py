@@ -141,6 +141,35 @@ def ids(session: Session, query: str) -> set[uuid.UUID]:
     return set(session.scalars(text(query)).all())
 
 
+VERSIONS_INDEX = "ix_document_versions_document_status_created"
+
+
+def version_index_definitions(engine: Engine) -> list[str]:
+    with engine.connect() as connection:
+        return list(
+            connection.scalars(
+                text(
+                    "SELECT indexdef FROM pg_indexes"
+                    " WHERE tablename = 'document_versions' AND indexname = :name"
+                ),
+                {"name": VERSIONS_INDEX},
+            )
+        )
+
+
+def test_versions_index_follows_the_migration(database_url: str) -> None:
+    with temporary_database(database_url) as url:
+        config = alembic_config(url)
+        engine = make_engine(url)
+        at_head = version_index_definitions(engine)
+        command.downgrade(config, "0004")
+        after_downgrade = version_index_definitions(engine)
+        engine.dispose()
+    assert len(at_head) == 1
+    assert "(document_id, status, created_at, id)" in at_head[0]
+    assert after_downgrade == []
+
+
 def test_migration_round_trip(database_url: str) -> None:
     with temporary_database(database_url) as url:
         config = alembic_config(url)

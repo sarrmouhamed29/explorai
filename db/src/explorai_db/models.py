@@ -123,6 +123,15 @@ class DocumentVersion(Base):
         CheckConstraint(
             "status IN ('ok', 'failed', 'unextractable')", name="status_allowed"
         ),
+        # Serves "the latest ok version of a document" (explorai_ai.store), run
+        # on every question: PostgreSQL does not index foreign key columns.
+        Index(
+            "ix_document_versions_document_status_created",
+            "document_id",
+            "status",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

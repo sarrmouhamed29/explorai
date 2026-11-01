@@ -78,6 +78,9 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('chunk_id', 'embedding_model')
     )
     op.add_column('document_versions', sa.Column('chunked_at', sa.DateTime(timezone=True), nullable=True))
+    # Serves the eligibility lookup (latest ok version per document), which runs
+    # on every question; PostgreSQL does not index foreign key columns itself.
+    op.create_index('ix_document_versions_document_status_created', 'document_versions', ['document_id', 'status', 'created_at', 'id'], unique=False)
 
     # The role and app_user() exist since 0003.
     for table, privileges in GRANTS.items():
@@ -91,6 +94,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_index('ix_document_versions_document_status_created', table_name='document_versions')
     for table, name, _command, _clause in POLICIES:
         op.execute(f"DROP POLICY {name} ON {table}")
     for table in RLS_TABLES:
