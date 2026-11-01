@@ -42,7 +42,13 @@ class LocalBlobStore:
         key = hashlib.sha256(data).hexdigest()
         path = self._path(key)
         if path.exists():
-            return key
+            # Refresh the age: a garbage collector must not delete an old orphan
+            # blob that this upload has just referenced again.
+            try:
+                os.utime(path)
+                return key
+            except FileNotFoundError:
+                pass  # collected between the check and now: write it again
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write then rename: a crash never leaves a truncated blob under its key.
         fd, tmp_name = tempfile.mkstemp(dir=path.parent)
@@ -66,6 +72,12 @@ class LocalBlobStore:
         keys: list[str] = []
         for path in self._root.glob("??/*"):
             # Names that are not keys are temporary files of an interrupted write.
-            if _KEY.fullmatch(path.name) and path.stat().st_mtime < cutoff:
+            if not _KEY.fullmatch(path.name):
+                continue
+            try:
+                modified = path.stat().st_mtime
+            except FileNotFoundError:
+                continue  # deleted between listing and stat
+            if modified < cutoff:
                 keys.append(path.name)
         return sorted(keys)

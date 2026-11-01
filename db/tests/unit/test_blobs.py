@@ -72,3 +72,33 @@ def test_keys_older_than_ignores_temporary_files(tmp_path: Path) -> None:
 
 def test_keys_older_than_on_empty_store(tmp_path: Path) -> None:
     assert LocalBlobStore(tmp_path / "missing").keys_older_than(0) == []
+
+
+def test_put_of_existing_blob_refreshes_its_age(tmp_path: Path) -> None:
+    store = LocalBlobStore(tmp_path)
+    key = store.put(b"orphan")
+    old_time = time.time() - 7200
+    os.utime(tmp_path / key[:2] / key, (old_time, old_time))
+    assert store.keys_older_than(3600) == [key]
+    store.put(b"orphan")
+    assert store.keys_older_than(3600) == []
+
+
+def test_keys_older_than_skips_files_that_vanish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = LocalBlobStore(tmp_path)
+    gone = store.put(b"gone")
+    kept = store.put(b"kept")
+    old_time = time.time() - 7200
+    for key in (gone, kept):
+        os.utime(tmp_path / key[:2] / key, (old_time, old_time))
+    real_stat = Path.stat
+
+    def flaky_stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if self.name == gone:
+            raise FileNotFoundError(self)
+        return real_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+    assert store.keys_older_than(3600) == [kept]
