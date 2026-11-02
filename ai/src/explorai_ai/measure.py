@@ -22,6 +22,7 @@ numbers mean nothing.
 """
 
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -37,6 +38,7 @@ from explorai_ai.citations import normalise_for_match
 from explorai_ai.config import RagSettings
 from explorai_ai.errors import ProviderError, RetrievalUnavailable
 from explorai_ai.fakes import FakeEmbedder, FakeGenerator, FakeReranker
+from explorai_ai.models import Usage
 from explorai_ai.pipeline import AnswerPipeline, Retrieves
 from explorai_ai.providers.base import Generator
 from explorai_ai.retriever import Candidate, RetrievalResult
@@ -64,10 +66,12 @@ class Question:
 
 @dataclass(frozen=True)
 class Outcome:
-    """What the measurement needs from one ask: the status and the kept chunks."""
+    """What the measurement needs from one ask: the status, kept chunks, and answer."""
 
     status: str
     kept_texts: list[str]
+    usage: Usage = dataclasses.field(default_factory=lambda: Usage(0, 0))
+    answer: str | None = None
 
 
 class Asks(Protocol):
@@ -197,7 +201,12 @@ class MeasuredPipeline:
         kept: list[Candidate] = []
         if retrieved is not None:
             kept = retrieved.candidates[: self._final]
-        return Outcome(result.status, [candidate.text for candidate in kept])
+        return Outcome(
+            result.status,
+            [candidate.text for candidate in kept],
+            result.usage,
+            result.answer,
+        )
 
 
 class InMemoryRetriever:

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import anthropic
-import httpx2
+import httpx
 import pytest
 
 from explorai_ai.config import RagSettings
@@ -65,8 +65,8 @@ def generator(client: StubClient) -> AnthropicGenerator:
 
 
 def status_error(cls: type[anthropic.APIStatusError], status: int) -> Exception:
-    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
-    response = httpx2.Response(status, request=request)
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status, request=request)
     return cls("error", response=response, body=None)
 
 
@@ -145,7 +145,7 @@ def test_rate_limit_then_success_is_retried() -> None:
 
 
 def test_sdk_errors_are_mapped() -> None:
-    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     cases: list[tuple[Exception, type[Exception]]] = [
         (anthropic.APITimeoutError(request=request), ProviderUnavailable),
         (anthropic.APIConnectionError(request=request), ProviderUnavailable),
@@ -216,8 +216,8 @@ def test_tool_use_stop_reason_is_the_happy_path() -> None:
 
 
 def test_sdk_errors_without_a_status_are_mapped() -> None:
-    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
-    response = httpx2.Response(200, request=request)
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(200, request=request)
     errors: list[Exception] = [
         anthropic.APIResponseValidationError(response, body=None),
         anthropic.APIError("sk-secret-key leaked?", request, body=None),

@@ -28,23 +28,38 @@ The pipeline hides the kept chunks (its result only has verified citations), so 
 The unit tests (no network, no key) check the scoring, the report and the question file, including that every quote really occurs in one chunk of its paper, chunked with the production settings:
 
 ```bash
-uv run pytest ai/tests/unit/test_measure.py --no-cov
+uv run pytest ai/tests/unit/test_measure.py evaluation/tests -m "not integration" --no-cov
 ```
 
 A plumbing check with the fake providers on a tiny in-memory corpus (the numbers mean nothing):
 
 ```bash
-uv run python -X utf8 -m explorai_ai.measure --provider fake
+uv run python -m explorai_eval.measure --provider fake
 ```
 
 The real measurement, to run by the maintainer:
 
-1. Start the stack with the real keys exported in the shell or set in the git-ignored `infra/.env` (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `RAG_PROVIDER=real`, `QDRANT_URL`, `QDRANT_API_KEY`, `DATABASE_URL`). Compose forwards the keys and every `RAG_*` setting to both the `backend` and the `pipelines` services (one shared list, `x-rag-environment`), so they agree on the model and dimension. Never put the keys in a committed file. The real provider has its own index (the fake one is `chunks_fake_...`), so everything is re-indexed after the switch; since both services switch at once, answers are partial until that re-indexing finishes (wait for it before measuring).
-2. Put the three papers in the **public** corpus and index them (`index-pending` of the `pipelines` service, see `pipelines/README.md`). Check that the three versions are indexed before measuring; the command only checks that the collection of the configured model exists. This step has not been exercised end to end by the author.
-3. Run:
+**Prerequisites:**
+
+1. Set the real keys in the git-ignored `infra/.env` (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `RAG_PROVIDER=real`, `QDRANT_URL`, `QDRANT_API_KEY`, `DATABASE_URL`). Never put the keys in a committed file. The real provider has its own index (the fake one is `chunks_fake_...`), so everything is re-indexed after the switch; since both services switch at once, answers are partial until that re-indexing finishes.
+2. Put the three papers in the **public** corpus and index them (`index-pending` of the `pipelines` service, see `pipelines/README.md`).
+3. *(Optional — for Langfuse tracing)* Create the `langfuse` database and start the service:
+   ```bash
+   docker compose --env-file infra/.env -f infra/docker-compose.yml exec postgres \
+     psql -U explorai -c 'CREATE DATABASE langfuse;'
+   docker compose --env-file infra/.env -f infra/docker-compose.yml --profile langfuse up -d langfuse
+   ```
+   Then open the Langfuse UI at `http://127.0.0.1:3000`, create an API key pair, and set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `infra/.env`.
+
+**Run the measurement:**
 
 ```bash
-uv run python -X utf8 -m explorai_ai.measure --provider real --output docs/evaluation/rag-baseline-run.md
+# Without Langfuse
+uv run python -m explorai_eval.measure --provider real --output docs/evaluation/rag-baseline-run.md
+
+# With Langfuse tracing
+uv run python -m explorai_eval.measure --provider real --langfuse \
+  --output docs/evaluation/rag-baseline-run.md
 ```
 
 Without the keys, the model's Qdrant collection or `DATABASE_URL` the command stops with a message and exit code 2, before any provider call. A provider outage stops it with exit code 1.
