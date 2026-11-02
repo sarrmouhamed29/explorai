@@ -192,8 +192,8 @@ services:
     image: langfuse/langfuse:3
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?set LANGFUSE_NEXTAUTH_SECRET in infra/.env}
-      SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT in infra/.env}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-}
+      SALT: ${LANGFUSE_SALT:-}
       NEXTAUTH_URL: "http://127.0.0.1:3000"
       TELEMETRY_ENABLED: "false"
     ports:

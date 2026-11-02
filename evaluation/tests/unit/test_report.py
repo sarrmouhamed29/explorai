@@ -94,6 +94,30 @@ def test_render_nan_ragas_as_na() -> None:
     assert "n/a" in md
 
 
+def test_render_missed_questions_appear() -> None:
+    existing = ExistingMetrics(
+        retrieval_hit_rate=0.5,
+        correct_refusal_rate=None,
+        false_refusal_rate=0.5,
+        retrieval_hits=5,
+        n_answerable=10,
+        correct_refusals=0,
+        n_unanswerable=0,
+        false_refusals=5,
+        missed_questions=["What is alpha?", "What is beta?"],
+    )
+    md = render_markdown(
+        existing,
+        None,
+        provider="real",
+        total_latency_s=1.0,
+        total_input_tokens=10,
+        total_output_tokens=5,
+    )
+    assert "What is alpha?" in md
+    assert "What is beta?" in md
+
+
 def test_render_latency_appears() -> None:
     md = render_markdown(
         _existing(),

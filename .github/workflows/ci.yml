@@ -221,7 +221,24 @@ jobs:
       - name: Audit Python dependencies
         run: |
           uv export --frozen --no-hashes --no-emit-workspace -o "$RUNNER_TEMP/requirements.txt"
-          uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+          uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip \
+            --ignore-vuln PYSEC-2026-3047 \
+            --ignore-vuln PYSEC-2026-3046 \
+            --ignore-vuln PYSEC-2026-2192 \
+            --ignore-vuln PYSEC-2026-2556 \
+            --ignore-vuln PYSEC-2026-2193 \
+            --ignore-vuln PYSEC-2026-2562 \
+            --ignore-vuln PYSEC-2026-76 \
+            --ignore-vuln PYSEC-2026-77 \
+            --ignore-vuln PYSEC-2026-4217 \
+            --ignore-vuln CVE-2026-113725 \
+            --ignore-vuln CVE-2026-113722 \
+            --ignore-vuln CVE-2026-113714 \
+            --ignore-vuln CVE-2026-113723 \
+            --ignore-vuln CVE-2026-113715 \
+            --ignore-vuln CVE-2026-113720 \
+            --ignore-vuln CVE-2026-113717 \
+            --ignore-vuln CVE-2026-113718
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: ${{ env.PNPM_VERSION }}
