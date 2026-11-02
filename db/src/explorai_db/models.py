@@ -228,6 +228,37 @@ class ChunkIndexEntry(Base):
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Conversation(Base):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('answered', 'insufficient_evidence')",
+            name="conversation_status_allowed",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32))
+    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=func.now()
+    )
+
+
+Index(
+    "ix_conversations_created_at_id",
+    Conversation.created_at.desc(),
+    Conversation.id.desc(),
+)
+
+
 class IngestionRun(Base):
     __tablename__ = "ingestion_runs"
 
