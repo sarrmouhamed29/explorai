@@ -1,4 +1,6 @@
 /// <reference types="vitest/config" />
+import tailwindcss from "@tailwindcss/vite";
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -6,7 +8,16 @@ import { defineConfig } from "vite";
 const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    TanStackRouterVite({ target: "react", autoCodeSplitting: true }),
+    react(),
+    tailwindcss(),
+  ],
+  resolve: {
+    alias: {
+      "@": new URL("./src", import.meta.url).pathname,
+    },
+  },
   server: {
     port: 5173,
     // Local dev binds loopback only; the Docker image overrides it with `--host 0.0.0.0`.
