@@ -225,7 +225,38 @@ During `POST /api/v1/ask`: textarea and Send are disabled. On 429: toast "Rate l
 | Network error | Toast "Network error, please retry" |
 | `insufficient_evidence` answer | Amber callout in the chat main zone (not an error, a normal response) |
 
-## 9. Component inventory
+## 9. Colour palette and theming
+
+The five-colour "Productivité minimale" palette is applied via shadcn/ui's CSS variable system in `frontend/src/index.css`. shadcn/ui variables use HSL values without the `hsl()` wrapper.
+
+| Token | Hex | HSL | Role |
+|---|---|---|---|
+| `--color-1` | `#FFFFFF` | `0 0% 100%` | Page background |
+| `--color-2` | `#F4F5F7` | `220 14% 96%` | Sidebar, card backgrounds, muted surfaces |
+| `--color-3` | `#DFE1E6` | `220 9% 88%` | Borders, dividers, input outlines |
+| `--color-4` | `#0052CC` | `218 100% 40%` | Primary actions (buttons, links, active nav) |
+| `--color-5` | `#172B4D` | `215 56% 19%` | Headings, body text, sidebar text |
+
+Mapping to shadcn/ui semantic tokens:
+
+```css
+/* frontend/src/index.css — :root */
+--background:       0 0% 100%;        /* color-1 */
+--card:             220 14% 96%;      /* color-2 */
+--muted:            220 14% 96%;      /* color-2 */
+--border:           220 9% 88%;       /* color-3 */
+--input:            220 9% 88%;       /* color-3 */
+--primary:          218 100% 40%;     /* color-4 */
+--primary-foreground: 0 0% 100%;      /* white on blue */
+--foreground:       215 56% 19%;      /* color-5 */
+--card-foreground:  215 56% 19%;      /* color-5 */
+--muted-foreground: 215 30% 40%;      /* color-5 lightened */
+--ring:             218 100% 40%;     /* color-4 */
+```
+
+No dark mode in SP6 (explicitly out of scope). The palette is set once in `index.css`; no Tailwind config override is needed beyond the default shadcn/ui setup.
+
+## 10. Component inventory
 
 All interactive primitives come from shadcn/ui (built on Radix UI). Custom components are wrappers or compositions.
 
@@ -241,7 +272,7 @@ All interactive primitives come from shadcn/ui (built on Radix UI). Custom compo
 | `ChatInputBar` | `Textarea`, `Select`, `Button` | Bottom bar in /chat |
 | `InsufficientEvidenceCallout` | `Alert` | Amber, shown on refusal |
 
-## 10. Testing strategy
+## 11. Testing strategy
 
 Existing test infrastructure: Vitest + msw (`src/test/server.ts` + `src/test/setup.ts`). The msw server gains one handler per new endpoint.
 
@@ -270,7 +301,7 @@ Existing test infrastructure: Vitest + msw (`src/test/server.ts` + `src/test/set
 - Integration tests for `GET /api/v1/conversations` and `GET /api/v1/stats` (same pattern as document integration tests).
 - RLS isolation test for conversations (`backend/tests/integration/test_isolation.py` extended).
 
-## 11. Evaluation criteria
+## 12. Evaluation criteria
 
 - All Vitest tests pass and coverage gate (80%) holds for the frontend.
 - All backend unit and integration tests pass (conversations isolation included).
@@ -280,7 +311,7 @@ Existing test infrastructure: Vitest + msw (`src/test/server.ts` + `src/test/set
 - A user can manually: sign up, log in, upload a PDF, ask a question, see an answer with citations, see the dashboard update with the new stats.
 - CI passes on `feature/frontend`.
 
-## 12. Threats and guardrails
+## 13. Threats and guardrails
 
 | Threat | Guardrail |
 |---|---|
