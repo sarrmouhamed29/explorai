@@ -246,6 +246,9 @@ class RecordingGenerator:
         self.rewrites.append(question)
         return self.inner.rewrite_queries(question, max_queries)
 
+    def classify(self, prompt: str) -> str:
+        return self.inner.classify(prompt)
+
     def answer(self, question: str, sources: Sequence[PromptSource]) -> GeneratedAnswer:
         self.answers.append((question, list(sources)))
         return self.inner.answer(question, sources)
