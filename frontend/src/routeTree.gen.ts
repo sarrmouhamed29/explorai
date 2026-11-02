@@ -13,8 +13,10 @@ import { Route as IndexRouteImport } from "./routes/index";
 import { Route as AppRouteImport } from "./routes/_app";
 import { Route as AuthRouteImport } from "./routes/_auth";
 import { Route as AppDashboardRouteImport } from "./routes/_app.dashboard";
+import { Route as AppDocumentsRouteImport } from "./routes/_app.documents";
 import { Route as AuthLoginRouteImport } from "./routes/_auth.login";
 import { Route as AuthSignupRouteImport } from "./routes/_auth.signup";
+import { Route as AppDocumentsDocumentIdRouteImport } from "./routes/_app.documents.$documentId";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
@@ -34,6 +36,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: "/dashboard",
   getParentRoute: () => AppRoute,
 } as any);
+const AppDocumentsRoute = AppDocumentsRouteImport.update({
+  id: "/documents",
+  path: "/documents",
+  getParentRoute: () => AppRoute,
+} as any);
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: "/login",
   path: "/login",
@@ -44,18 +51,27 @@ const AuthSignupRoute = AuthSignupRouteImport.update({
   path: "/signup",
   getParentRoute: () => AuthRoute,
 } as any);
+const AppDocumentsDocumentIdRoute = AppDocumentsDocumentIdRouteImport.update({
+  id: "/$documentId",
+  path: "/$documentId",
+  getParentRoute: () => AppDocumentsRoute,
+} as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/dashboard": typeof AppDashboardRoute;
+  "/documents": typeof AppDocumentsRouteWithChildren;
   "/login": typeof AuthLoginRoute;
   "/signup": typeof AuthSignupRoute;
+  "/documents/$documentId": typeof AppDocumentsDocumentIdRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/dashboard": typeof AppDashboardRoute;
+  "/documents": typeof AppDocumentsRouteWithChildren;
   "/login": typeof AuthLoginRoute;
   "/signup": typeof AuthSignupRoute;
+  "/documents/$documentId": typeof AppDocumentsDocumentIdRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
@@ -63,22 +79,38 @@ export interface FileRoutesById {
   "/_app": typeof AppRouteWithChildren;
   "/_auth": typeof AuthRouteWithChildren;
   "/_app/dashboard": typeof AppDashboardRoute;
+  "/_app/documents": typeof AppDocumentsRouteWithChildren;
   "/_auth/login": typeof AuthLoginRoute;
   "/_auth/signup": typeof AuthSignupRoute;
+  "/_app/documents/$documentId": typeof AppDocumentsDocumentIdRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/dashboard" | "/login" | "/signup";
+  fullPaths:
+    | "/"
+    | "/dashboard"
+    | "/documents"
+    | "/login"
+    | "/signup"
+    | "/documents/$documentId";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/dashboard" | "/login" | "/signup";
+  to:
+    | "/"
+    | "/dashboard"
+    | "/documents"
+    | "/login"
+    | "/signup"
+    | "/documents/$documentId";
   id:
     | "__root__"
     | "/"
     | "/_app"
     | "/_auth"
     | "/_app/dashboard"
+    | "/_app/documents"
     | "/_auth/login"
-    | "/_auth/signup";
+    | "/_auth/signup"
+    | "/_app/documents/$documentId";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -117,6 +149,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AppDashboardRouteImport;
       parentRoute: typeof AppRoute;
     };
+    "/_app/documents": {
+      id: "/_app/documents";
+      path: "/documents";
+      fullPath: "/documents";
+      preLoaderRoute: typeof AppDocumentsRouteImport;
+      parentRoute: typeof AppRoute;
+    };
     "/_auth/login": {
       id: "/_auth/login";
       path: "/login";
@@ -131,15 +170,36 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AuthSignupRouteImport;
       parentRoute: typeof AuthRoute;
     };
+    "/_app/documents/$documentId": {
+      id: "/_app/documents/$documentId";
+      path: "/$documentId";
+      fullPath: "/documents/$documentId";
+      preLoaderRoute: typeof AppDocumentsDocumentIdRouteImport;
+      parentRoute: typeof AppDocumentsRoute;
+    };
   }
 }
 
+interface AppDocumentsRouteChildren {
+  AppDocumentsDocumentIdRoute: typeof AppDocumentsDocumentIdRoute;
+}
+
+const AppDocumentsRouteChildren: AppDocumentsRouteChildren = {
+  AppDocumentsDocumentIdRoute: AppDocumentsDocumentIdRoute,
+};
+
+const AppDocumentsRouteWithChildren = AppDocumentsRoute._addFileChildren(
+  AppDocumentsRouteChildren,
+);
+
 interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute;
+  AppDocumentsRoute: typeof AppDocumentsRouteWithChildren;
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
+  AppDocumentsRoute: AppDocumentsRouteWithChildren,
 };
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren);
