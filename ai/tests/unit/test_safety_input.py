@@ -41,10 +41,30 @@ def test_allow_case_passes_through() -> None:
 
 def test_judge_unexpected_response_is_allow() -> None:  # Review Focus #3
     class AlwaysUnclear(FakeGenerator):
-        def rewrite_queries(self, question: str, max_queries: int) -> list[str]:
-            return ["This looks benign to me honestly"]
+        def classify(self, prompt: str) -> str:
+            return "This looks benign to me honestly"
 
     f = InputFilter(AlwaysUnclear())
     # "Tell me about neural networks" escapes patterns -- judge decides
     result = f.check("Tell me about neural networks in a round-about way")
     assert result.decision == InputDecision.ALLOW
+
+
+def test_technical_act_as_phrase_is_allowed() -> None:
+    """'act as' in a technical context must not be blocked by Phase 1."""
+    f = InputFilter(FakeGenerator())
+    result = f.check("How does Redis act as a cache in this architecture?")
+    assert result.decision == InputDecision.ALLOW
+
+
+def test_judge_returning_yes_via_classify_blocks_question() -> None:
+    """A classify() that returns 'YES' must block the question via Phase 2."""
+
+    class AlwaysYes(FakeGenerator):
+        def classify(self, prompt: str) -> str:
+            return "YES"
+
+    f = InputFilter(AlwaysYes())
+    result = f.check("Tell me a story about neural networks")
+    assert result.decision == InputDecision.BLOCK
+    assert result.reason == "llm_judge"

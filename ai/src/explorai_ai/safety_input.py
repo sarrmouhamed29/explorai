@@ -49,7 +49,17 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "reveal_system",
         re.compile(r"reveal.{0,30}(prompt|instructions|rules|system)", _FLAGS),
     ),
-    ("act_as", re.compile(r"\bact\s+as\b", _FLAGS)),
+    # Only block when followed by a known injection persona or "if" (role-play
+    # setup), so "Redis acts as a cache" is not caught as a false positive.
+    (
+        "act_as",
+        re.compile(
+            r"\bact\s+as\b\s*"
+            r"(?:if|(?:an?\s+)?(?:AI|assistant|bot|DAN|GPT|LLM|model|character"
+            r"|persona|admin|root|sudo|system|developer|jailbreak|bypass))\b",
+            _FLAGS,
+        ),
+    ),
     ("pretend", re.compile(r"pretend\s+(you\s+are|to\s+be)", _FLAGS)),
     ("you_are_now", re.compile(r"you\s+are\s+now", _FLAGS)),
     (
@@ -103,11 +113,11 @@ class InputFilter:
         # Phase 2: LLM-as-judge (only for questions that pass patterns)
         prompt = _JUDGE_PROMPT.format(question=normalised)
         try:
-            results = self._generator.rewrite_queries(prompt, max_queries=1)
+            response = self._generator.classify(prompt)
         except ProviderError:
             return InputFilterResult(decision=InputDecision.ALLOW, reason="judge_error")
 
-        if results and results[0].strip().upper() == "YES":
+        if response.strip().upper() == "YES":
             return InputFilterResult(decision=InputDecision.BLOCK, reason="llm_judge")
 
         return InputFilterResult(decision=InputDecision.ALLOW, reason="ok")
