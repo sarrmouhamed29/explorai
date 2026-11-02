@@ -1,6 +1,8 @@
 # Sub-project 6: Frontend, design spec
 
-Part of the master plan (`plan.md`). Date: 2026-11-02. Status: draft.
+Part of the master plan (`plan.md`). Date: 2026-11-02. Status: approved.
+
+> **Implementation note:** the `frontend-design` skill (already installed) governs every task that produces UI — component layout, Tailwind token usage, shadcn/ui assembly, and colour application. Load it before writing any frontend component.
 
 ## 1. Goal
 
