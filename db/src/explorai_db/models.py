@@ -244,7 +244,7 @@ class Conversation(Base):
     question: Mapped[str] = mapped_column(Text)
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32))
-    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    citations: Mapped[list[object]] = mapped_column(JSONB, default=list)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
