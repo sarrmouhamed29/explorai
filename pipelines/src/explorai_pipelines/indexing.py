@@ -21,10 +21,11 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from typing import Protocol
 
-from explorai_ai.chunking import ChunkText, chunk_sections, embedding_text
+from explorai_ai.chunking import ChunkText, SectionInput, chunk_sections, embedding_text
 from explorai_ai.config import RagSettings
 from explorai_ai.errors import ProviderError
 from explorai_ai.index import IndexPoint
+from explorai_ai.pii import PiiScanner
 from explorai_ai.providers.base import Embedder
 from explorai_ai.scope import PUBLIC_OWNER
 from explorai_ai.sparse import encode_document
@@ -59,6 +60,8 @@ class IndexingRepository(Protocol):
 
     def eligible_chunk_ids(self) -> set[uuid.UUID]: ...
 
+    def mark_pii_blocked(self, document_id: uuid.UUID) -> None: ...
+
 
 class VectorIndex(Protocol):
     """What indexing needs from ``QdrantIndex`` (unit tests pass a fake)."""
@@ -84,17 +87,35 @@ def owner_value(owner_id: uuid.UUID | None) -> str:
 
 
 def chunk_pending_versions(
-    repo: IndexingRepository, settings: RagSettings, *, limit: int = 200
+    repo: IndexingRepository,
+    settings: RagSettings,
+    *,
+    limit: int = 200,
+    scanner: PiiScanner | None = None,
 ) -> int:
     """Cut up to ``limit`` eligible, not yet chunked versions; return how many.
 
     Local work only (no provider). A version whose sections are all too short
     gets zero chunks and is still marked chunked.
+
+    When ``scanner`` is provided, each version's text is scanned before chunking:
+    - ``pii_action="block"``: marks the document as PII-blocked and skips it.
+    - ``pii_action="redact"``: replaces section text with the redacted form first.
     """
     versions = repo.versions_to_chunk(limit)
     for version in versions:
+        sections = version.sections
+        if scanner is not None and sections:
+            full_text = "\n".join(s.text for s in sections)
+            result = scanner.scan(full_text)
+            if result.has_pii:
+                if version.pii_action == "block":
+                    repo.mark_pii_blocked(version.document_id)
+                    continue
+                # redact: replace all section text with the single redacted blob
+                sections = [SectionInput(None, result.redacted_text)]
         chunks = chunk_sections(
-            version.sections,
+            sections,
             target_words=settings.chunk_words,
             overlap_words=settings.chunk_overlap_words,
             max_chunks=settings.max_chunks_per_document,
