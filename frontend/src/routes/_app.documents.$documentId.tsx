@@ -34,7 +34,8 @@ export default function DocumentDetailPage() {
     queryKey: ["document", documentId],
     queryFn: async () => {
       const res = await fetch(`/api/v1/documents/${documentId}`);
-      if (!res.ok) throw new Error("Not found");
+      if (!res.ok)
+        throw Object.assign(new Error("Not found"), { status: res.status });
       return res.json() as Promise<DocumentOut>;
     },
     enabled: !!documentId,
@@ -44,7 +45,8 @@ export default function DocumentDetailPage() {
     queryKey: ["document", documentId, "sections"],
     queryFn: async () => {
       const res = await fetch(`/api/v1/documents/${documentId}/sections`);
-      if (!res.ok) throw new Error("Not found");
+      if (!res.ok)
+        throw Object.assign(new Error("Not found"), { status: res.status });
       return res.json() as Promise<{ items: SectionItem[] }>;
     },
     enabled: !!documentId,

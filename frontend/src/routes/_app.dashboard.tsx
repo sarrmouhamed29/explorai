@@ -27,13 +27,19 @@ interface ConversationItem {
 
 async function fetchStats(): Promise<StatsOut> {
   const res = await fetch("/api/v1/stats");
-  if (!res.ok) throw new Error("Failed to fetch stats");
+  if (!res.ok)
+    throw Object.assign(new Error("Failed to fetch stats"), {
+      status: res.status,
+    });
   return res.json() as Promise<StatsOut>;
 }
 
 async function fetchConversations(): Promise<{ items: ConversationItem[] }> {
   const res = await fetch("/api/v1/conversations?limit=20");
-  if (!res.ok) throw new Error("Failed to fetch conversations");
+  if (!res.ok)
+    throw Object.assign(new Error("Failed to fetch conversations"), {
+      status: res.status,
+    });
   return res.json() as Promise<{ items: ConversationItem[] }>;
 }
 

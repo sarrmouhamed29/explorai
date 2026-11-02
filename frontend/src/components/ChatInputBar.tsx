@@ -28,7 +28,8 @@ export function ChatInputBar({
     queryKey: ["documents"],
     queryFn: async () => {
       const res = await fetch("/api/v1/documents?scope=mine&limit=50");
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok)
+        throw Object.assign(new Error("Failed"), { status: res.status });
       return res.json() as Promise<{ items: DocumentOut[] }>;
     },
   });

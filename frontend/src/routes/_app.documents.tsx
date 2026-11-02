@@ -22,7 +22,10 @@ interface DocumentOut {
 
 async function fetchDocuments(): Promise<{ items: DocumentOut[] }> {
   const res = await fetch("/api/v1/documents?scope=mine&limit=50");
-  if (!res.ok) throw new Error("Failed to fetch documents");
+  if (!res.ok)
+    throw Object.assign(new Error("Failed to fetch documents"), {
+      status: res.status,
+    });
   return res.json() as Promise<{ items: DocumentOut[] }>;
 }
 

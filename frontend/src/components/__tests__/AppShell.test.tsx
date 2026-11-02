@@ -1,8 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 
+import { server } from "@/test/server";
 import AppShell from "@/components/AppShell";
+import { queryClient } from "@/lib/query-client";
+import DocumentsPage from "@/routes/_app.documents";
 
 const mockNavigate = vi.fn();
 const mockClear = vi.fn();
@@ -62,4 +66,23 @@ test("clears query cache and navigates to /login on logout", async () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/login" }),
   );
   expect(mockClear).toHaveBeenCalled();
+});
+
+test("redirects to /login when a query returns 401", async () => {
+  const originalHref = window.location.href;
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: { href: originalHref },
+  });
+  server.use(
+    http.get("/api/v1/documents", () => HttpResponse.json({}, { status: 401 })),
+  );
+  render(
+    <QueryClientProvider client={queryClient}>
+      <DocumentsPage />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => {
+    expect((window.location as { href: string }).href).toBe("/login");
+  });
 });

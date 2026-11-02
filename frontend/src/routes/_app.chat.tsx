@@ -62,7 +62,8 @@ export default function ChatPage({ searchParams }: ChatPageProps = {}) {
     queryKey: ["conversations"],
     queryFn: async () => {
       const res = await fetch("/api/v1/conversations?limit=20");
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok)
+        throw Object.assign(new Error("Failed"), { status: res.status });
       return res.json() as Promise<{ items: ConversationOut[] }>;
     },
   });
