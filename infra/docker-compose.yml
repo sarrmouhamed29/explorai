@@ -185,6 +185,25 @@ services:
       retries: 5
       start_period: 15s
 
+  # Langfuse observability — optional, used with --langfuse in explorai_eval.measure.
+  # Requires a `langfuse` database in the same PostgreSQL instance; create it once:
+  #   docker compose exec postgres psql -U explorai -c 'CREATE DATABASE langfuse;'
+  langfuse:
+    image: langfuse/langfuse:3
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?set LANGFUSE_NEXTAUTH_SECRET in infra/.env}
+      SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT in infra/.env}
+      NEXTAUTH_URL: "http://127.0.0.1:3000"
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - langfuse
+
 volumes:
   blobs:
   prefect-data:
