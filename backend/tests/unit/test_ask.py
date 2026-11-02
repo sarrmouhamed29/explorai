@@ -183,7 +183,9 @@ def test_invalid_scope_is_422(
 def test_request_is_passed_to_the_pipeline(redis_client: fakeredis.FakeRedis) -> None:
     pipeline = FakePipeline()
     app = make_app(pipeline, redis_client)
-    service = AskService(pipeline, Documents({DOCUMENT}), limiter_on(redis_client))
+    service = AskService(
+        pipeline, Documents({DOCUMENT}), limiter_on(redis_client), FakeConversations()
+    )
     app.dependency_overrides[ask_api.get_ask_service] = lambda: service
 
     response = post(
@@ -197,7 +199,9 @@ def test_request_is_passed_to_the_pipeline(redis_client: fakeredis.FakeRedis) ->
 def test_invisible_document_id_is_404(redis_client: fakeredis.FakeRedis) -> None:
     pipeline = FakePipeline()
     app = make_app(pipeline, redis_client)
-    service = AskService(pipeline, Documents(set()), limiter_on(redis_client))
+    service = AskService(
+        pipeline, Documents(set()), limiter_on(redis_client), FakeConversations()
+    )
     app.dependency_overrides[ask_api.get_ask_service] = lambda: service
 
     response = post(app, {"question": "What?", "document_id": str(uuid.uuid4())})
@@ -405,11 +409,35 @@ class Documents:
         )
 
 
+class FakeConversations:
+    def __init__(self) -> None:
+        self.saved_count = 0
+
+    def save(
+        self,
+        owner_id: uuid.UUID,
+        question: str,
+        answer: str | None,
+        status: str,
+        citations_json: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        self.saved_count += 1
+
+
+class FailingConversations:
+    def save(self, *args: object, **kwargs: object) -> None:
+        raise RuntimeError("save failed")
+
+
 def test_invisible_document_is_not_found_and_gives_the_reservation_back(
     redis_client: fakeredis.FakeRedis,
 ) -> None:
     pipeline = FakePipeline()
-    service = AskService(pipeline, Documents(set()), limiter_on(redis_client))
+    service = AskService(
+        pipeline, Documents(set()), limiter_on(redis_client), FakeConversations()
+    )
 
     with pytest.raises(DocumentNotFound):
         service.ask(USER.id, "Q?", "all", uuid.uuid4())
@@ -422,7 +450,9 @@ def test_visible_document_reaches_the_pipeline(
     redis_client: fakeredis.FakeRedis,
 ) -> None:
     pipeline = FakePipeline(ANSWER)
-    service = AskService(pipeline, Documents({DOCUMENT}), limiter_on(redis_client))
+    service = AskService(
+        pipeline, Documents({DOCUMENT}), limiter_on(redis_client), FakeConversations()
+    )
 
     assert service.ask(USER.id, "Q?", "public", DOCUMENT) is ANSWER
     assert pipeline.calls == [(USER.id, "Q?", "public", DOCUMENT)]
@@ -433,7 +463,9 @@ def test_over_the_limit_never_reaches_the_pipeline(
     redis_client: fakeredis.FakeRedis,
 ) -> None:
     pipeline = FakePipeline()
-    service = AskService(pipeline, Documents(set()), limiter_on(redis_client))
+    service = AskService(
+        pipeline, Documents(set()), limiter_on(redis_client), FakeConversations()
+    )
     for _ in range(LIMIT):
         service.ask(USER.id, "Q?")
 
@@ -443,3 +475,27 @@ def test_over_the_limit_never_reaches_the_pipeline(
     assert len(pipeline.calls) == LIMIT
     # The refused attempt gave its reservation back: the count stays at the limit.
     assert reserved(redis_client) == LIMIT
+
+
+def test_ask_saves_conversation(redis_client: fakeredis.FakeRedis) -> None:
+    pipeline = FakePipeline(ANSWER)
+    conversations = FakeConversations()
+    service = AskService(
+        pipeline, Documents({DOCUMENT}), limiter_on(redis_client), conversations
+    )
+    service.ask(USER.id, "question?")
+    assert conversations.saved_count == 1
+
+
+def test_ask_save_failure_does_not_propagate(
+    redis_client: fakeredis.FakeRedis,
+) -> None:
+    pipeline = FakePipeline(ANSWER)
+    service = AskService(
+        pipeline,
+        Documents({DOCUMENT}),
+        limiter_on(redis_client),
+        FailingConversations(),
+    )
+    result = service.ask(USER.id, "question?")
+    assert result is not None

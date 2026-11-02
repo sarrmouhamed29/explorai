@@ -9,6 +9,8 @@ database outage, a bug) gives it back, so the user does not pay for our failures
 Nothing here logs the question or the answer: error types only.
 """
 
+import dataclasses
+import json
 import logging
 import uuid
 from typing import Protocol
@@ -55,16 +57,33 @@ class VisibleDocuments(Protocol):
     def get(self, user_id: uuid.UUID, document_id: uuid.UUID) -> DocumentRow | None: ...
 
 
+class SavesConversation(Protocol):
+    """What the service needs to persist a completed exchange."""
+
+    def save(
+        self,
+        owner_id: uuid.UUID,
+        question: str,
+        answer: str | None,
+        status: str,
+        citations_json: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None: ...
+
+
 class AskService:
     def __init__(
         self,
         pipeline: Answers,
         documents: VisibleDocuments,
         limiter: FixedWindowLimiter,
+        conversations: SavesConversation,
     ) -> None:
         self._pipeline = pipeline
         self._documents = documents
         self._limiter = limiter
+        self._conversations = conversations
 
     def ask(
         self,
@@ -102,6 +121,20 @@ class AskService:
                 logger.warning("ask unavailable: %s", type(exc).__name__)
                 raise AnswerUnavailable from None
             served = True
+            try:
+                self._conversations.save(
+                    user_id,
+                    question,
+                    result.answer,
+                    result.status,
+                    json.dumps(
+                        [dataclasses.asdict(c) for c in result.citations], default=str
+                    ),
+                    result.usage.input_tokens,
+                    result.usage.output_tokens,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("failed to save conversation")
             return result
         finally:
             if not served:

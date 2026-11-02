@@ -23,6 +23,7 @@ from explorai_backend.deps import (
     get_redis,
     get_scoped_sessions,
 )
+from explorai_backend.repositories.conversations import ConversationsRepository
 from explorai_backend.repositories.documents import DocumentsRepository
 from explorai_backend.services.ask import (
     AnswerUnavailable,
@@ -88,7 +89,12 @@ def get_ask_service(
     sessions: Annotated[ScopedSessions, Depends(get_scoped_sessions)],
     limiter: Annotated[FixedWindowLimiter, Depends(get_ask_limiter)],
 ) -> AskService:
-    return AskService(pipeline, DocumentsRepository(sessions), limiter)
+    return AskService(
+        pipeline,
+        DocumentsRepository(sessions),
+        limiter,
+        ConversationsRepository(sessions),
+    )
 
 
 Service = Annotated[AskService, Depends(get_ask_service)]
