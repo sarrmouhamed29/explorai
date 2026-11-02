@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as AppRouteImport } from "./routes/_app";
 import { Route as AuthRouteImport } from "./routes/_auth";
+import { Route as AppChatRouteImport } from "./routes/_app.chat";
 import { Route as AppDashboardRouteImport } from "./routes/_app.dashboard";
 import { Route as AppDocumentsRouteImport } from "./routes/_app.documents";
 import { Route as AuthLoginRouteImport } from "./routes/_auth.login";
@@ -30,6 +31,11 @@ const AppRoute = AppRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: "/_auth",
   getParentRoute: () => rootRouteImport,
+} as any);
+const AppChatRoute = AppChatRouteImport.update({
+  id: "/chat",
+  path: "/chat",
+  getParentRoute: () => AppRoute,
 } as any);
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: "/dashboard",
@@ -59,6 +65,7 @@ const AppDocumentsDocumentIdRoute = AppDocumentsDocumentIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
+  "/chat": typeof AppChatRoute;
   "/dashboard": typeof AppDashboardRoute;
   "/documents": typeof AppDocumentsRouteWithChildren;
   "/login": typeof AuthLoginRoute;
@@ -67,6 +74,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
+  "/chat": typeof AppChatRoute;
   "/dashboard": typeof AppDashboardRoute;
   "/documents": typeof AppDocumentsRouteWithChildren;
   "/login": typeof AuthLoginRoute;
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   "/": typeof IndexRoute;
   "/_app": typeof AppRouteWithChildren;
   "/_auth": typeof AuthRouteWithChildren;
+  "/_app/chat": typeof AppChatRoute;
   "/_app/dashboard": typeof AppDashboardRoute;
   "/_app/documents": typeof AppDocumentsRouteWithChildren;
   "/_auth/login": typeof AuthLoginRoute;
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
     | "/"
+    | "/chat"
     | "/dashboard"
     | "/documents"
     | "/login"
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/"
+    | "/chat"
     | "/dashboard"
     | "/documents"
     | "/login"
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | "/"
     | "/_app"
     | "/_auth"
+    | "/_app/chat"
     | "/_app/dashboard"
     | "/_app/documents"
     | "/_auth/login"
@@ -141,6 +153,13 @@ declare module "@tanstack/react-router" {
       fullPath: "/";
       preLoaderRoute: typeof AuthRouteImport;
       parentRoute: typeof rootRouteImport;
+    };
+    "/_app/chat": {
+      id: "/_app/chat";
+      path: "/chat";
+      fullPath: "/chat";
+      preLoaderRoute: typeof AppChatRouteImport;
+      parentRoute: typeof AppRoute;
     };
     "/_app/dashboard": {
       id: "/_app/dashboard";
@@ -193,11 +212,13 @@ const AppDocumentsRouteWithChildren = AppDocumentsRoute._addFileChildren(
 );
 
 interface AppRouteChildren {
+  AppChatRoute: typeof AppChatRoute;
   AppDashboardRoute: typeof AppDashboardRoute;
   AppDocumentsRoute: typeof AppDocumentsRouteWithChildren;
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppChatRoute: AppChatRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDocumentsRoute: AppDocumentsRouteWithChildren,
 };

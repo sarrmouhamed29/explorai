@@ -26,10 +26,7 @@ interface SectionItem {
 }
 
 export default function DocumentDetailPage() {
-  const { documentId } = useParams({
-    from: "/_app/documents/$documentId",
-    strict: false,
-  }) as {
+  const { documentId } = useParams({ strict: false }) as {
     documentId: string;
   };
 
