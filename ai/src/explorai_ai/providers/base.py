@@ -29,3 +29,12 @@ class Generator(Protocol):
     def answer(
         self, question: str, sources: Sequence[PromptSource]
     ) -> GeneratedAnswer: ...
+
+    def classify(self, prompt: str) -> str:
+        """Send ``prompt`` as a user message; return the raw text response.
+
+        Used for binary classification tasks such as the LLM-as-judge filter.
+        Any string other than ``"YES"`` (case-insensitive) counts as ALLOW, so
+        provider errors are the caller's responsibility (wrap in try/except).
+        """
+        ...

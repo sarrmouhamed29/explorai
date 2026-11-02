@@ -105,6 +105,9 @@ class FakeReranker:
 class FakeGenerator:
     refusal_overlap = 0.3
 
+    def classify(self, prompt: str) -> str:
+        return "NO"
+
     def rewrite_queries(self, question: str, max_queries: int) -> list[str]:
         words = [t for t in tokenize(question) if t not in _STOP_WORDS]
         rewritten = " ".join(words)

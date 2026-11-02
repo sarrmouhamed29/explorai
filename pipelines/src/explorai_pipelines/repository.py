@@ -52,6 +52,7 @@ class VersionToChunk:
     document_id: uuid.UUID
     owner_id: uuid.UUID | None
     sections: list[SectionInput]
+    pii_action: str = "block"
 
 
 @dataclass(frozen=True)
@@ -393,10 +394,17 @@ class Repository:
         with self._factory() as session:
             rows = session.execute(
                 select(
-                    DocumentVersion.id, DocumentVersion.document_id, Document.owner_id
+                    DocumentVersion.id,
+                    DocumentVersion.document_id,
+                    Document.owner_id,
+                    Document.pii_action,
                 )
                 .join(Document, Document.id == DocumentVersion.document_id)
-                .where(_eligible(), DocumentVersion.chunked_at.is_(None))
+                .where(
+                    _eligible(),
+                    DocumentVersion.chunked_at.is_(None),
+                    Document.pii_blocked.is_(False),
+                )
                 .order_by(DocumentVersion.created_at, DocumentVersion.id)
                 .limit(limit)
             ).all()
@@ -410,9 +418,20 @@ class Repository:
             ):
                 sections[version_id].append(SectionInput(heading, body))
             return [
-                VersionToChunk(version_id, document_id, owner_id, sections[version_id])
-                for version_id, document_id, owner_id in rows
+                VersionToChunk(
+                    version_id, document_id, owner_id, sections[version_id], pii_action
+                )
+                for version_id, document_id, owner_id, pii_action in rows
             ]
+
+    def mark_pii_blocked(self, document_id: uuid.UUID) -> None:
+        """Set ``pii_blocked = True`` so the document is not re-queued for chunking."""
+        with self._factory.begin() as session:
+            session.execute(
+                update(Document)
+                .where(Document.id == document_id)
+                .values(pii_blocked=True)
+            )
 
     def save_chunks(self, version_id: uuid.UUID, chunks: Sequence[ChunkText]) -> None:
         """Store the chunks of a version and mark it chunked, all or nothing.

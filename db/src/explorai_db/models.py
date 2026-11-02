@@ -113,6 +113,18 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, server_default=func.now()
     )
+    # Owner's chosen handling when the pipeline detects PII in the document text.
+    pii_action: Mapped[str] = mapped_column(
+        String(16), server_default="block", default="block"
+    )
+    # Set by the pipeline after it redacts PII in the document text.
+    pii_redacted: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", default=False
+    )
+    # Set by the pipeline when it blocks a document because of detected PII.
+    pii_blocked: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", default=False
+    )
 
 
 # Serves the keyset pagination of the documents list (newest first).

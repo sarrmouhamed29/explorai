@@ -68,6 +68,9 @@ class RecordingGenerator:
     sources: list[list[PromptSource]] = field(default_factory=list)
     prompts: list[str] = field(default_factory=list)
 
+    def classify(self, prompt: str) -> str:
+        return "NO"
+
     def rewrite_queries(self, question: str, max_queries: int) -> list[str]:
         raise AssertionError("the pipeline never rewrites")
 

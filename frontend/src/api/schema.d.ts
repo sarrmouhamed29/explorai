@@ -276,6 +276,12 @@ export interface components {
             indexed: boolean;
             /** Owned */
             owned: boolean;
+            /**
+             * Pii Blocked
+             * @description True when the pipeline blocked this document due to detected PII
+             * @default false
+             */
+            pii_blocked: boolean;
             /** Source Kind */
             source_kind: string;
             /**
@@ -627,6 +633,7 @@ export interface operations {
     upload_document_api_v1_documents_post: {
         parameters: {
             query?: {
+                pii_action?: "block" | "redact";
                 filename?: string | null;
             };
             header?: never;

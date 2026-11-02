@@ -26,6 +26,7 @@ from explorai_ai.retry import retry_transient
 # max_tokens) is unusable and would fail the same way on every retry.
 ANSWER_MAX_TOKENS = 4096
 REWRITE_MAX_TOKENS = 256
+CLASSIFY_MAX_TOKENS = 5  # YES or NO plus a newline
 
 
 def _call(client: Any, **kwargs: Any) -> Any:
@@ -142,6 +143,29 @@ class AnthropicGenerator:
             ):
                 return _parse_answer(block.input, _usage(message))
         raise ProviderError("the model did not call the answer tool")
+
+    def classify(self, prompt: str) -> str:
+        """Send ``prompt`` as the user message; return the raw text response.
+
+        No system prompt is added: the caller's prompt already contains the
+        classification instructions.
+        """
+        message = retry_transient(
+            lambda: _call(
+                self._client,
+                model=self._rewrite_model,
+                max_tokens=CLASSIFY_MAX_TOKENS,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=self._timeout,
+            )
+        )
+        return "".join(
+            block.text
+            for block in getattr(message, "content", None) or []
+            if getattr(block, "type", None) == "text"
+            and isinstance(getattr(block, "text", None), str)
+        ).strip()
 
     def rewrite_queries(self, question: str, max_queries: int) -> list[str]:
         message = retry_transient(

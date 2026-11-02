@@ -12,6 +12,7 @@ from explorai_ai.config import RagSettings
 from explorai_ai.errors import ProviderError, ProviderUnavailable
 from explorai_ai.fakes import FakeEmbedder
 from explorai_ai.index import IndexPoint, QdrantIndex
+from explorai_ai.pii import PiiScanner
 from explorai_ai.scope import PUBLIC_OWNER
 from explorai_pipelines import indexing
 from explorai_pipelines.flows import indexing as flows
@@ -54,6 +55,7 @@ class FakeRepo:
         self.ineligible: set[uuid.UUID] = set()
         self.record_calls = 0
         self.events: list[str] = []
+        self.pii_blocked_docs: list[uuid.UUID] = []
 
     @contextmanager
     def advisory_lock(self, key: int) -> Iterator[bool]:
@@ -105,6 +107,9 @@ class FakeRepo:
 
     def eligible_chunk_ids(self) -> set[uuid.UUID]:
         return {c.chunk_id for c in self.chunks} - self.ineligible
+
+    def mark_pii_blocked(self, document_id: uuid.UUID) -> None:
+        self.pii_blocked_docs.append(document_id)
 
 
 class FakeIndex:
@@ -542,3 +547,75 @@ def test_dimension_change_is_a_new_index_with_every_chunk_pending(
     index_pending(repo, RecordingEmbedder(dimension=16), index, wider)
     assert index.alias == new
     assert set(index.collections[new]) == set(ids)
+
+
+# PII hook tests
+
+
+def test_chunk_pending_blocks_version_with_pii_when_action_block(
+    repo: FakeRepo,
+) -> None:
+    doc_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    repo.to_chunk.append(
+        VersionToChunk(
+            version_id,
+            doc_id,
+            None,
+            [SectionInput("Title", "Contact alice@example.com for details")],
+            pii_action="block",
+        )
+    )
+    scanner = PiiScanner()
+
+    count = chunk_pending_versions(repo, rag_settings(), scanner=scanner)
+
+    assert count == 1
+    assert version_id not in repo.saved
+    assert doc_id in repo.pii_blocked_docs
+
+
+def test_chunk_pending_redacts_version_with_pii_when_action_redact(
+    repo: FakeRepo,
+) -> None:
+    doc_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    repo.to_chunk.append(
+        VersionToChunk(
+            version_id,
+            doc_id,
+            None,
+            [SectionInput("Title", "Contact alice@example.com for details")],
+            pii_action="redact",
+        )
+    )
+    scanner = PiiScanner()
+
+    count = chunk_pending_versions(repo, rag_settings(), scanner=scanner)
+
+    assert count == 1
+    assert version_id in repo.saved
+    assert doc_id not in repo.pii_blocked_docs
+    # Redacted text must not contain the original email address.
+    saved_texts = " ".join(c.text for c in repo.saved[version_id])
+    assert "alice@example.com" not in saved_texts
+
+
+def test_chunk_pending_unchanged_when_no_pii(repo: FakeRepo) -> None:
+    version_id = uuid.uuid4()
+    repo.to_chunk.append(
+        VersionToChunk(
+            version_id,
+            uuid.uuid4(),
+            None,
+            [SectionInput("H", WORDS)],
+            pii_action="block",
+        )
+    )
+    scanner = PiiScanner()
+
+    count = chunk_pending_versions(repo, rag_settings(), scanner=scanner)
+
+    assert count == 1
+    assert version_id in repo.saved
+    assert repo.pii_blocked_docs == []

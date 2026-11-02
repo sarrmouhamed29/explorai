@@ -42,6 +42,8 @@ class DocumentRow:
     # Whether the document is searchable. The queries here leave it False; the
     # service fills it with one ChunkStore.indexed_state query per page.
     indexed: bool = False
+    # Set by the pipeline when it blocks the document due to detected PII.
+    pii_blocked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,7 @@ def _row(
         document.owner_id == user_id,
         status,
         document.created_at,
+        pii_blocked=document.pii_blocked,
     )
 
 
@@ -200,7 +203,12 @@ class DocumentsRepository:
             return session.scalar(query) or 0
 
     def create_upload(
-        self, user_id: uuid.UUID, sha256: str, storage_key: str, title: str
+        self,
+        user_id: uuid.UUID,
+        sha256: str,
+        storage_key: str,
+        title: str,
+        pii_action: str = "block",
     ) -> tuple[DocumentRow, bool]:
         """Record an uploaded file: its artifact and its document, in one transaction.
 
@@ -236,7 +244,7 @@ class DocumentsRepository:
             created = session.scalar(
                 insert(Document)
                 # id and created_at come from the column defaults.
-                .values(title=title, **identity)
+                .values(title=title, pii_action=pii_action, **identity)
                 .on_conflict_do_nothing()
                 .returning(Document.id)
             )
