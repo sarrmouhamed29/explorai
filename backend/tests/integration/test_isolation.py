@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from explorai_db.models import Document
 from explorai_db.rls import scoped_session
-from integration.helpers import add_document, login_as
+from integration.helpers import add_document, login_as, save_conversation
 
 pytestmark = pytest.mark.integration
 
@@ -178,3 +178,17 @@ def test_rls_holds_even_without_the_repository_filter(
 
 def test_new_routes_are_covered(world: World) -> None:
     assert document_routes(world.app) == EXPECTED_DOCUMENT_ROUTES
+
+
+def test_conversations_are_scoped_to_their_owner(
+    world: World, session_factory: sessionmaker[Session]
+) -> None:
+    conv_a = save_conversation(session_factory, world.user_a, "Alice asks?")
+    conv_b = save_conversation(session_factory, world.user_b, "Bob asks?")
+
+    response = world.client_a.get(f"{API}/conversations")
+
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()["items"]]
+    assert str(conv_a) in ids
+    assert str(conv_b) not in ids

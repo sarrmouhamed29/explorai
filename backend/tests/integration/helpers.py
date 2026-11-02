@@ -23,6 +23,7 @@ from explorai_ai.sparse import encode_query
 from explorai_ai.store import ChunkStore
 from explorai_db.models import (
     Chunk,
+    Conversation,
     Document,
     DocumentVersion,
     RawArtifact,
@@ -193,6 +194,27 @@ def add_user(factory: sessionmaker[Session], email: str) -> uuid.UUID:
         session.add(user)
         session.flush()
         return user.id
+
+
+def save_conversation(
+    factory: sessionmaker[Session],
+    owner_id: uuid.UUID,
+    question: str = "Q?",
+) -> uuid.UUID:
+    """A conversation row inserted as the table owner (bypasses RLS)."""
+    with factory.begin() as session:
+        conv = Conversation(
+            owner_id=owner_id,
+            question=question,
+            answer="A.",
+            status="answered",
+            citations=[],
+            input_tokens=5,
+            output_tokens=3,
+        )
+        session.add(conv)
+        session.flush()
+        return conv.id
 
 
 def chunk_ids_of(

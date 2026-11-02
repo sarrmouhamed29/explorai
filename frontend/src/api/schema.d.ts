@@ -99,6 +99,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Conversations
+         * @description Return the user's conversation history, newest first.
+         */
+        get: operations["list_conversations_api_v1_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents": {
         parameters: {
             query?: never;
@@ -154,6 +174,26 @@ export interface paths {
         };
         /** Get Sections */
         get: operations["get_sections_api_v1_documents__document_id__sections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Stats
+         * @description Return aggregate counts and token usage for the user's workspace.
+         */
+        get: operations["get_stats_api_v1_stats_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -246,6 +286,34 @@ export interface components {
             section: string | null;
             /** Source */
             source: number;
+        };
+        /** ConversationOut */
+        ConversationOut: {
+            /** Answer */
+            answer: string | null;
+            /** Citations */
+            citations: unknown[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Question */
+            question: string;
+            /** Status */
+            status: string;
+        };
+        /** ConversationsPage */
+        ConversationsPage: {
+            /** Items */
+            items: components["schemas"]["ConversationOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
         };
         /** Credentials */
         Credentials: {
@@ -352,6 +420,23 @@ export interface components {
             items: components["schemas"]["SectionOut"][];
             /** Next Cursor */
             next_cursor: string | null;
+        };
+        /** StatsOut */
+        StatsOut: {
+            /** Answered Count */
+            answered_count: number;
+            /** Conversation Count */
+            conversation_count: number;
+            /** Document Count */
+            document_count: number;
+            /** Indexed Count */
+            indexed_count: number;
+            /** Refusal Count */
+            refusal_count: number;
+            /** Total Input Tokens */
+            total_input_tokens: number;
+            /** Total Output Tokens */
+            total_output_tokens: number;
         };
         /** UsageOut */
         UsageOut: {
@@ -587,6 +672,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_conversations_api_v1_conversations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationsPage"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -849,6 +966,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_stats_api_v1_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsOut"];
                 };
             };
         };

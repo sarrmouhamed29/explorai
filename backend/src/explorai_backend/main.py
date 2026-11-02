@@ -11,8 +11,10 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from explorai_backend.api.ask import router as ask_router
 from explorai_backend.api.auth import router as auth_router
+from explorai_backend.api.conversations import router as conversations_router
 from explorai_backend.api.documents import router as documents_router
 from explorai_backend.api.health import router as health_router
+from explorai_backend.api.stats import router as stats_router
 from explorai_backend.config import get_settings
 from explorai_backend.deps import get_rag_settings
 from explorai_backend.middleware import OriginCheckMiddleware
@@ -69,6 +71,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(documents_router)
     app.include_router(ask_router)
+    app.include_router(conversations_router)
+    app.include_router(stats_router)
     return app
 
 
