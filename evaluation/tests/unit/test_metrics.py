@@ -1,11 +1,9 @@
-"""Tests for existing metrics (hit rate, refusals).
-
-Ragas metric tests are added in Task 5.
-"""
+"""Tests for existing metrics (hit rate, refusals) and Ragas metrics."""
 
 import pytest
 
-from explorai_eval.metrics import compute_existing_metrics
+from explorai_eval.config import EvalSettings
+from explorai_eval.metrics import compute_existing_metrics, compute_ragas_metrics
 from explorai_eval.runner import EvalSample
 
 
@@ -119,3 +117,70 @@ def test_correct_refusal_rate(refusal_samples: list[EvalSample]) -> None:
 def test_false_refusals_counted(false_refusal_samples: list[EvalSample]) -> None:
     result = compute_existing_metrics(false_refusal_samples)
     assert result.false_refusals == 1
+
+
+# --- Ragas metrics -----------------------------------------------------------
+
+
+@pytest.fixture
+def fake_settings() -> EvalSettings:
+    return EvalSettings(provider="fake")
+
+
+@pytest.fixture
+def sample_with_answer() -> EvalSample:
+    return EvalSample(
+        question="Q?",
+        answer="The answer",
+        status="answered",
+        retrieved_contexts=["context text"],
+        expected_quote="quote",
+        expected_answer="The answer",
+        latency_s=0.1,
+        input_tokens=10,
+        output_tokens=5,
+    )
+
+
+@pytest.fixture
+def samples_without_expected_answer() -> list[EvalSample]:
+    return [
+        EvalSample(
+            question="Who won?",
+            answer="",
+            status="insufficient_evidence",
+            retrieved_contexts=[],
+            expected_quote=None,
+            expected_answer=None,
+            latency_s=0.1,
+            input_tokens=5,
+            output_tokens=0,
+        )
+    ]
+
+
+def test_ragas_metrics_none_when_no_expected_answer(
+    samples_without_expected_answer: list[EvalSample],
+    fake_settings: EvalSettings,
+) -> None:
+    result = compute_ragas_metrics(samples_without_expected_answer, fake_settings)
+    assert result.context_recall is None
+    assert result.faithfulness is None
+    assert result.answer_correctness is None
+    assert result.answer_relevancy is None
+
+
+def test_ragas_metrics_nan_becomes_none(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_with_answer: EvalSample,
+    fake_settings: EvalSettings,
+) -> None:
+    class _FakeResult:
+        def __getitem__(self, key: str) -> list[float]:
+            return [float("nan")]
+
+    import explorai_eval.metrics as _m
+
+    monkeypatch.setattr(_m, "_ragas_evaluate", lambda *a, **kw: _FakeResult())
+    result = compute_ragas_metrics([sample_with_answer], fake_settings)
+    assert result.context_recall is None
