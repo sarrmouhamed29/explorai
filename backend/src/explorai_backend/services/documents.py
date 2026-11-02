@@ -155,7 +155,13 @@ class UploadsService:
         self._max_documents = max_documents
         self._flag = flag
 
-    def upload(self, user_id: uuid.UUID, data: bytes, filename: str | None) -> Upload:
+    def upload(
+        self,
+        user_id: uuid.UUID,
+        data: bytes,
+        filename: str | None,
+        pii_action: str = "block",
+    ) -> Upload:
         require_pdf(data)
         sha256 = hashlib.sha256(data).hexdigest()
         existing = self._repository.find_upload(user_id, sha256)
@@ -170,6 +176,6 @@ class UploadsService:
             raise QuotaReached
         key = self._blobs.put(data)
         document, created = self._repository.create_upload(
-            user_id, sha256, key, clean_title(filename)
+            user_id, sha256, key, clean_title(filename), pii_action
         )
         return Upload(document, created)

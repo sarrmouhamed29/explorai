@@ -65,6 +65,10 @@ class DocumentOut(BaseModel):
     indexed: bool = Field(
         description="True when the document's chunks are in the live search index"
     )
+    pii_blocked: bool = Field(
+        default=False,
+        description="True when the pipeline blocked this document due to detected PII",
+    )
 
 
 class DocumentPage(BaseModel):
@@ -138,6 +142,7 @@ def _out(row: DocumentRow) -> DocumentOut:
         status=row.status,
         created_at=row.created_at,
         indexed=row.indexed,
+        pii_blocked=row.pii_blocked,
     )
 
 
@@ -258,6 +263,7 @@ async def upload_document(
     uploads: Uploads,
     limiter: UploadLimiter,
     settings: AppSettings,
+    pii_action: Annotated[Literal["block", "redact"], Query()] = "block",
     filename: Annotated[str | None, Query(max_length=1024)] = None,
 ) -> DocumentOut:
     """Upload a private PDF as the raw request body (``Content-Type`` is ignored).
@@ -299,7 +305,9 @@ async def upload_document(
                 status.HTTP_400_BAD_REQUEST, "upload interrupted"
             ) from None
         try:
-            result = await run_in_threadpool(uploads.upload, user.id, data, filename)
+            result = await run_in_threadpool(
+                uploads.upload, user.id, data, filename, pii_action
+            )
         except NotPdf:
             raise HTTPException(
                 status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "only PDF files are accepted"

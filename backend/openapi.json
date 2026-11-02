@@ -175,6 +175,12 @@
             "title": "Owned",
             "type": "boolean"
           },
+          "pii_blocked": {
+            "default": false,
+            "description": "True when the pipeline blocked this document due to detected PII",
+            "title": "Pii Blocked",
+            "type": "boolean"
+          },
           "source_kind": {
             "title": "Source Kind",
             "type": "string"
@@ -726,6 +732,20 @@
         "description": "Upload a private PDF as the raw request body (``Content-Type`` is ignored).\n\n``filename`` only gives the title. The answer is ``202`` with the new\ndocument, still ``processing``, or ``200`` with the existing one when this\nuser already uploaded the same bytes.",
         "operationId": "upload_document_api_v1_documents_post",
         "parameters": [
+          {
+            "in": "query",
+            "name": "pii_action",
+            "required": false,
+            "schema": {
+              "default": "block",
+              "enum": [
+                "block",
+                "redact"
+              ],
+              "title": "Pii Action",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "filename",
