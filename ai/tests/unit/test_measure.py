@@ -26,6 +26,7 @@ from explorai_ai.measure import (
     score_refusal,
     score_retrieval,
 )
+from explorai_ai.models import Usage
 
 QUOTE = "Each selected expert executes one forward pass."
 CHUNKS = [
@@ -230,7 +231,11 @@ PAPERS = {"2610.40577", "2610.40619", "2610.40627"}
 
 def test_question_file_has_the_agreed_shape() -> None:
     raw = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
-    assert all(set(item) == {"question", "paper", "expected_quote"} for item in raw)
+    required = {"question", "paper", "expected_quote"}
+    allowed = required | {"expected_answer"}
+    assert all(
+        required.issubset(set(item)) and set(item).issubset(allowed) for item in raw
+    )
     questions = load_questions()
     assert len(questions) == ANSWERABLE + UNANSWERABLE
     answerable = [q for q in questions if q.expected_quote is not None]
@@ -282,3 +287,9 @@ def test_load_questions_rejects_a_malformed_file(tmp_path: Path) -> None:
 
 def test_user_id_of_the_measure_is_not_a_real_account() -> None:
     assert isinstance(measure.MEASURE_USER, uuid.UUID)
+
+
+def test_outcome_has_usage_field() -> None:
+    outcome = Outcome(status="answered", kept_texts=[], usage=Usage(10, 5))
+    assert outcome.usage.input_tokens == 10
+    assert outcome.usage.output_tokens == 5
