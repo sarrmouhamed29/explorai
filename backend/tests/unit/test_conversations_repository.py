@@ -5,11 +5,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from explorai_backend.repositories.conversations import ConversationsRepository
+from explorai_db.rls import ScopedSessions
 
 OWNER_ID = uuid.uuid4()
 
@@ -99,7 +100,7 @@ def fake_sessions_full() -> _FakeScopedSessions:
 
 
 def test_save_inserts_row(fake_sessions: _FakeScopedSessions) -> None:
-    repo = ConversationsRepository(fake_sessions)
+    repo = ConversationsRepository(cast(ScopedSessions, fake_sessions))
     repo.save(OWNER_ID, "q", "a", "answered", "[]", 10, 5)
     row = fake_sessions.last_inserted
     assert row.question == "q"
@@ -109,7 +110,7 @@ def test_save_inserts_row(fake_sessions: _FakeScopedSessions) -> None:
 def test_list_returns_empty_when_no_rows(
     fake_sessions_empty: _FakeScopedSessions,
 ) -> None:
-    repo = ConversationsRepository(fake_sessions_empty)
+    repo = ConversationsRepository(cast(ScopedSessions, fake_sessions_empty))
     rows, cursor = repo.list_for_user(OWNER_ID, 20, None)
     assert rows == []
     assert cursor is None
@@ -118,7 +119,7 @@ def test_list_returns_empty_when_no_rows(
 def test_list_returns_next_cursor_when_more(
     fake_sessions_full: _FakeScopedSessions,
 ) -> None:
-    repo = ConversationsRepository(fake_sessions_full)
+    repo = ConversationsRepository(cast(ScopedSessions, fake_sessions_full))
     rows, cursor = repo.list_for_user(OWNER_ID, 2, None)
     assert len(rows) == 2
     assert cursor is not None

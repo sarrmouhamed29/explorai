@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from explorai_backend import deps
@@ -89,14 +90,14 @@ class EmptyStatsRepo:
 
 
 @pytest.fixture
-def app_auth() -> TestClient:
+def app_auth() -> FastAPI:
     app = create_app()
     app.dependency_overrides[current_user] = lambda: USER
     return app
 
 
 @pytest.fixture
-def client_auth(app_auth: TestClient) -> TestClient:
+def client_auth(app_auth: FastAPI) -> TestClient:
     return TestClient(app_auth)
 
 
@@ -106,21 +107,21 @@ def client_no_auth() -> TestClient:
 
 
 @pytest.fixture
-def empty_conversations_repo(app_auth: TestClient) -> None:
+def empty_conversations_repo(app_auth: FastAPI) -> None:
     app_auth.dependency_overrides[conversations_api.get_conversations_repo] = lambda: (
         EmptyConversationsRepo()
     )
 
 
 @pytest.fixture
-def one_conversation_repo(app_auth: TestClient) -> None:
+def one_conversation_repo(app_auth: FastAPI) -> None:
     app_auth.dependency_overrides[conversations_api.get_conversations_repo] = lambda: (
         OneConversationRepo()
     )
 
 
 @pytest.fixture
-def empty_stats_repo(app_auth: TestClient) -> None:
+def empty_stats_repo(app_auth: FastAPI) -> None:
     app_auth.dependency_overrides[stats_api.get_stats_repo] = lambda: EmptyStatsRepo()
 
 

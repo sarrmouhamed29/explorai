@@ -30,7 +30,7 @@ class ConversationRow:
     question: str
     answer: str | None
     status: str
-    citations: list
+    citations: list[object]
     input_tokens: int
     output_tokens: int
     created_at: datetime
