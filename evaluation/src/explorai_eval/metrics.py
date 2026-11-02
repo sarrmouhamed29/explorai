@@ -106,8 +106,8 @@ def _ragas_evaluate(dataset: Any, settings: "EvalSettings") -> Any:
     anthropic_key = settings.anthropic_api_key
     llm = LangchainLLMWrapper(
         ChatAnthropic(
-            model_name=settings.generation_model,
-            api_key=anthropic_key.get_secret_value()
+            model=settings.generation_model,
+            anthropic_api_key=anthropic_key.get_secret_value()  # type: ignore[arg-type]
             if anthropic_key
             else "placeholder",
         )

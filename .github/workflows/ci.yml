@@ -97,6 +97,27 @@ jobs:
       - run: uv run pytest pipelines/tests
       - run: uv run pytest ai/tests
 
+  evaluation:
+    name: evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: uv run ruff check evaluation
+      - run: uv run ruff format --check evaluation
+      - run: uv run mypy --config-file evaluation/pyproject.toml evaluation/src evaluation/tests
+      - run: uv run pytest evaluation/tests -m "not integration"
+      - run: uv run python -m explorai_eval.measure --provider fake
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
