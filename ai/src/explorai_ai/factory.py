@@ -11,6 +11,8 @@ from explorai_ai.fakes import FakeEmbedder, FakeGenerator, FakeReranker
 from explorai_ai.providers.anthropic_generator import AnthropicGenerator
 from explorai_ai.providers.base import Embedder, Generator, Reranker
 from explorai_ai.providers.voyage import VoyageEmbedder, VoyageReranker
+from explorai_ai.safety_input import InputFilter
+from explorai_ai.safety_output import OutputFilter
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,16 @@ class Providers:
     embedder: Embedder
     reranker: Reranker
     generator: Generator
+
+
+def build_safety(
+    settings: RagSettings, generator: Generator
+) -> tuple[InputFilter, OutputFilter]:
+    """Build the safety filter pair from settings and a generator."""
+    from explorai_ai.pii import PiiScanner
+
+    scanner = PiiScanner()
+    return InputFilter(generator), OutputFilter(scanner)
 
 
 def build_providers(

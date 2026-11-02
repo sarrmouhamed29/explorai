@@ -28,6 +28,8 @@ from explorai_ai.errors import GenerationFailed, ProviderError, ProviderUnavaila
 from explorai_ai.models import AnswerResult, PromptSource, Usage
 from explorai_ai.providers.base import Generator
 from explorai_ai.retriever import RetrievalResult
+from explorai_ai.safety_input import InputDecision, InputFilter
+from explorai_ai.safety_output import OutputFilter
 from explorai_ai.scope import Scope
 
 NO_USAGE = Usage(input_tokens=0, output_tokens=0)
@@ -61,11 +63,18 @@ def _refusal(usage: Usage) -> AnswerResult:
 
 class AnswerPipeline:
     def __init__(
-        self, retriever: Retrieves, generator: Generator, settings: RagSettings
+        self,
+        retriever: Retrieves,
+        generator: Generator,
+        settings: RagSettings,
+        input_filter: InputFilter | None = None,
+        output_filter: OutputFilter | None = None,
     ) -> None:
         self._retriever = retriever
         self._generator = generator
         self._settings = settings
+        self._input_filter = input_filter
+        self._output_filter = output_filter
 
     def ask(
         self,
@@ -98,6 +107,13 @@ class AnswerPipeline:
         document_id: UUID | None,
     ) -> tuple[AnswerResult, _Trace]:
         settings = self._settings
+
+        # Safety phase 1: input filter (before any retrieval cost)
+        if self._input_filter is not None:
+            input_result = self._input_filter.check(question)
+            if input_result.decision == InputDecision.BLOCK:
+                return _refusal(NO_USAGE), _Trace("input_blocked")
+
         retrieved = self._retriever.retrieve(user_id, question, scope, document_id)
         if not retrieved.candidates:
             return _refusal(NO_USAGE), _Trace("no_candidates")
@@ -142,5 +158,13 @@ class AnswerPipeline:
         text = strip_unverified_markers(
             generated.answer, {citation.source for citation in citations}
         )
+
+        # Safety phase 2: output filter (after citation verification)
+        if self._output_filter is not None:
+            output_result = self._output_filter.check(text, citations)
+            if not output_result.safe:
+                trace = _Trace("output_blocked", len(sources), raw)
+                return _refusal(generated.usage), trace
+
         answer = AnswerResult("answered", text, citations, generated.usage)
         return answer, _Trace("answered", len(sources), raw)
