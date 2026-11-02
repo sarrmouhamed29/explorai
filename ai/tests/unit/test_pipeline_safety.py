@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from explorai_ai.citations import Citation
 from explorai_ai.config import RagSettings
 from explorai_ai.fakes import FakeGenerator
 from explorai_ai.models import GeneratedAnswer, PromptSource, Usage
@@ -61,7 +62,7 @@ class _AlwaysUnsafe(OutputFilter):
     def check(
         self,
         answer: str,
-        citations: list,  # type: ignore[override]
+        citations: list[Citation],
     ) -> OutputFilterResult:
         return OutputFilterResult(safe=False, redacted_answer=None)
 

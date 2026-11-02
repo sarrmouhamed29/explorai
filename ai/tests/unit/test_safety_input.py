@@ -20,7 +20,7 @@ _FULLWIDTH_IGNORE = "".join(
 
 
 @pytest.mark.parametrize("case", yaml.safe_load(_FIXTURE.read_text(encoding="utf-8")))
-def test_pattern_phase_matches_fixture(case: dict) -> None:
+def test_pattern_phase_matches_fixture(case: dict[str, str]) -> None:
     f = InputFilter(FakeGenerator())
     result = f.check(case["text"])
     if case["expected"] == "block":

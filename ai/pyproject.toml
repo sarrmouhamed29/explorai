@@ -53,6 +53,16 @@ strict = true
 plugins = ["pydantic.mypy"]
 python_version = "3.12"
 
+[[tool.mypy.overrides]]
+module = [
+    "presidio_analyzer",
+    "presidio_analyzer.*",
+    "presidio_anonymizer",
+    "presidio_anonymizer.*",
+    "yaml",
+]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true

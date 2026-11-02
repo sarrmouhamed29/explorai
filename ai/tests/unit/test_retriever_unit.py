@@ -153,6 +153,9 @@ class ScriptedGenerator:
             raise self.rewrites
         return self.rewrites
 
+    def classify(self, prompt: str) -> str:
+        return "NO"
+
     def answer(self, question: str, sources: Sequence[Any]) -> Any:
         raise AssertionError("the retriever never answers")
 
