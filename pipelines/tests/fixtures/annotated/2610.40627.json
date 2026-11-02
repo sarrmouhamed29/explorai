@@ -1,0 +1,9 @@
+{
+  "order_pairs": [
+    ["Prior RL-based defenses score the defender", "Mirroring Eq. equation 1, the trajectory return"],
+    ["Mirroring Eq. equation 1, the trajectory return", "Gradient Scope Since the reward reads only the deliberation"]
+  ],
+  "repeated_lines": [
+    "Preprint"
+  ]
+}

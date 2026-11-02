@@ -1,0 +1,210 @@
+# Local development dependencies. Run from the repo root:
+#   docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait
+x-pipelines-build: &pipelines-build
+  context: ..
+  dockerfile: pipelines/Dockerfile
+
+# Every variable RagSettings reads, for the backend and the pipelines alike (one
+# list, merged into both): the two processes must agree on the provider, the
+# model and the dimension, which name the index. Keys come from infra/.env
+# (empty by default: RAG_PROVIDER=fake needs none; real refuses to start without
+# both). Tuning defaults repeat those of explorai_ai.config.RagSettings, since an
+# empty value would not validate as a number.
+x-rag-environment: &rag-environment
+  RAG_PROVIDER: ${RAG_PROVIDER:-fake}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_API_KEY: ${QDRANT_API_KEY:?set QDRANT_API_KEY in infra/.env}
+  RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-voyage-4}
+  RAG_EMBEDDING_DIMENSION: ${RAG_EMBEDDING_DIMENSION:-1024}
+  RAG_RERANK_MODEL: ${RAG_RERANK_MODEL:-rerank-2.5}
+  RAG_GENERATION_MODEL: ${RAG_GENERATION_MODEL:-claude-sonnet-5-5}
+  RAG_REWRITE_MODEL: ${RAG_REWRITE_MODEL:-claude-haiku-5-5}
+  RAG_REWRITE_ENABLED: ${RAG_REWRITE_ENABLED:-true}
+  RAG_RERANK_ENABLED: ${RAG_RERANK_ENABLED:-true}
+  RAG_DENSE_CANDIDATES: ${RAG_DENSE_CANDIDATES:-50}
+  RAG_SPARSE_CANDIDATES: ${RAG_SPARSE_CANDIDATES:-50}
+  RAG_FUSED_CANDIDATES: ${RAG_FUSED_CANDIDATES:-30}
+  RAG_FINAL_CANDIDATES: ${RAG_FINAL_CANDIDATES:-8}
+  RAG_REFUSAL_THRESHOLD: ${RAG_REFUSAL_THRESHOLD:-0.2}
+  RAG_CHUNK_WORDS: ${RAG_CHUNK_WORDS:-400}
+  RAG_CHUNK_OVERLAP_WORDS: ${RAG_CHUNK_OVERLAP_WORDS:-60}
+  RAG_MAX_CHUNKS_PER_DOCUMENT: ${RAG_MAX_CHUNKS_PER_DOCUMENT:-500}
+  RAG_EMBED_BATCH_SIZE: ${RAG_EMBED_BATCH_SIZE:-64}
+  RAG_PROVIDER_TIMEOUT_SECONDS: ${RAG_PROVIDER_TIMEOUT_SECONDS:-20}
+  RAG_ASK_MAX_PER_HOUR: ${RAG_ASK_MAX_PER_HOUR:-30}
+  RAG_QUESTION_MAX_CHARS: ${RAG_QUESTION_MAX_CHARS:-2000}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Vector store for the RAG index. The official image has no curl or wget but has bash,
+  # so the health check opens a TCP connection to the port with bash's /dev/tcp.
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?set QDRANT_API_KEY in infra/.env}
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", ":> /dev/tcp/127.0.0.1/6333"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    # Inside the Compose network the services are reached by name, not 127.0.0.1.
+    environment:
+      APP_ENV: ${APP_ENV}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      CHECK_TIMEOUT_SECONDS: ${CHECK_TIMEOUT_SECONDS}
+      BLOB_DIR: /data/blobs
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:5173}
+      # The dev stack serves plain HTTP: a Secure cookie would not be usable by curl.
+      # Production MUST set SESSION_COOKIE_SECURE=true (the application default).
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-20000000}
+      # The app validates the RAG settings at startup. Fake models: no key needed.
+      <<: *rag-environment
+    volumes:
+      - blobs:/data/blobs
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ../frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # One-shot: applies the Alembic migrations, then exits 0.
+  migrate:
+    build: *pipelines-build
+    image: explorai-pipelines:dev
+    command: ["python", "-m", "explorai_db.migrate"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Prefect server from the same image as the flows, so client and server versions
+  # cannot drift. SQLite on a volume: development only.
+  prefect:
+    build: *pipelines-build
+    image: explorai-pipelines:dev
+    command: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
+    ports:
+      - "127.0.0.1:4200:4200"
+    volumes:
+      - prefect-data:/data/prefect
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  pipelines:
+    build: *pipelines-build
+    image: explorai-pipelines:dev
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PREFECT_API_URL: http://prefect:4200/api
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-dev@example.invalid}
+      MAX_DOWNLOAD_BYTES: ${MAX_DOWNLOAD_BYTES:-50000000}
+      EXTRACT_TIMEOUT_SECONDS: ${EXTRACT_TIMEOUT_SECONDS:-60}
+      ARXIV_MIN_INTERVAL_SECONDS: ${ARXIV_MIN_INTERVAL_SECONDS:-3.0}
+      # With RAG_PROVIDER set, serve also registers index-pending and prune-index.
+      <<: *rag-environment
+    volumes:
+      - blobs:/data/blobs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      prefect:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      # The serving process is useless without the Prefect API, so check that.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://prefect:4200/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  # Langfuse observability — optional, used with --langfuse in explorai_eval.measure.
+  # Requires a `langfuse` database in the same PostgreSQL instance; create it once:
+  #   docker compose exec postgres psql -U explorai -c 'CREATE DATABASE langfuse;'
+  langfuse:
+    image: langfuse/langfuse:3
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-}
+      SALT: ${LANGFUSE_SALT:-}
+      NEXTAUTH_URL: "http://127.0.0.1:3000"
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - langfuse
+
+volumes:
+  blobs:
+  prefect-data:
+  qdrant-data:
