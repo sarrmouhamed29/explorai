@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import SettingsConfigDict
 
 from explorai_ai.config import RagSettings
@@ -14,9 +14,15 @@ class EvalSettings(RagSettings):
         extra="ignore",
     )
 
-    langfuse_host: str = ""
-    langfuse_public_key: str = ""
-    langfuse_secret_key: SecretStr | None = None
+    langfuse_host: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_HOST")
+    )
+    langfuse_public_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY")
+    )
+    langfuse_secret_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("LANGFUSE_SECRET_KEY")
+    )
 
     @classmethod
     def from_env(cls) -> "EvalSettings":

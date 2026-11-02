@@ -197,7 +197,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     print(markdown)
     if args.output:
-        args.output.write_text(markdown, encoding="utf-8")
+        try:
+            args.output.write_text(markdown, encoding="utf-8")
+        except OSError as error:
+            print(f"cannot write output file: {error}", file=sys.stderr)
+            return 2
     return 0
 
 

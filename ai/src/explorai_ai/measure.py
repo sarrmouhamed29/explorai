@@ -66,11 +66,12 @@ class Question:
 
 @dataclass(frozen=True)
 class Outcome:
-    """What the measurement needs from one ask: the status and the kept chunks."""
+    """What the measurement needs from one ask: the status, kept chunks, and answer."""
 
     status: str
     kept_texts: list[str]
     usage: Usage = dataclasses.field(default_factory=lambda: Usage(0, 0))
+    answer: str | None = None
 
 
 class Asks(Protocol):
@@ -201,7 +202,10 @@ class MeasuredPipeline:
         if retrieved is not None:
             kept = retrieved.candidates[: self._final]
         return Outcome(
-            result.status, [candidate.text for candidate in kept], result.usage
+            result.status,
+            [candidate.text for candidate in kept],
+            result.usage,
+            result.answer,
         )
 
 

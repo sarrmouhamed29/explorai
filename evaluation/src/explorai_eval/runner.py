@@ -34,7 +34,7 @@ def run_evaluation(questions: Sequence[Question], pipeline: _Asks) -> list[EvalS
         samples.append(
             EvalSample(
                 question=q.question,
-                answer="\n".join(outcome.kept_texts),
+                answer=outcome.answer or "",
                 status=outcome.status,
                 retrieved_contexts=list(outcome.kept_texts),
                 expected_quote=q.expected_quote,

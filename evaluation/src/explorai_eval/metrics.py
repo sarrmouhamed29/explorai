@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from explorai_ai.citations import normalise_for_match
+from explorai_eval.config import EvalSettings
 from explorai_eval.runner import EvalSample
 
 REFUSED = "insufficient_evidence"
@@ -114,14 +115,15 @@ def _ragas_evaluate(dataset: Any, settings: "EvalSettings") -> Any:
     )
 
     from langchain_voyageai import VoyageAIEmbeddings
+    from pydantic import SecretStr
 
     voyage_key = settings.voyage_api_key
     embeddings = LangchainEmbeddingsWrapper(
         VoyageAIEmbeddings(
             model=settings.embedding_model,
-            voyage_api_key=voyage_key.get_secret_value()
-            if voyage_key
-            else "placeholder",
+            voyage_api_key=SecretStr(
+                voyage_key.get_secret_value() if voyage_key else "placeholder"
+            ),
         )
     )
 
@@ -136,7 +138,7 @@ def _ragas_evaluate(dataset: Any, settings: "EvalSettings") -> Any:
 
 def compute_ragas_metrics(
     samples: Sequence[EvalSample],
-    settings: "EvalSettings",
+    settings: EvalSettings,
 ) -> RagasMetrics:
     """Compute Ragas LLM-as-judge metrics for samples that have expected_answer."""
     from ragas import EvaluationDataset, SingleTurnSample
@@ -170,8 +172,3 @@ def compute_ragas_metrics(
         answer_correctness=_get("answer_correctness"),
         answer_relevancy=_get("answer_relevancy"),
     )
-
-
-# Avoid circular import: EvalSettings imports from explorai_ai, metrics only
-# needs the type for _build_ragas_llm / _build_ragas_embeddings.
-from explorai_eval.config import EvalSettings  # noqa: E402
