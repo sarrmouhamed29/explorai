@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context is the repository root: docker build -f backend/Dockerfile .
 
-FROM python:3.12.16-slim AS builder
+FROM python:3.15.0-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
@@ -12,7 +12,7 @@ COPY ai/ ai/
 COPY pipelines/ pipelines/
 RUN uv sync --frozen --package explorai-backend --no-dev --no-editable
 
-FROM python:3.12.16-slim AS runtime
+FROM python:3.15.0-slim AS runtime
 # /data/blobs is created here so a fresh named volume mounted on it inherits uid 10001
 # ownership; the pipelines image does the same, so both services can share the volume.
 RUN groupadd --system --gid 10001 app \
