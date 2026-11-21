@@ -24,7 +24,7 @@ dev = [
     "ruff",
     "mypy",
     "pre-commit",
-    "httpx2>=2.16.0",
+    "httpx2>=2.16.2",
     "fakeredis",
     # Test-only: the integration tests index documents with the real indexing
     # functions. Never a runtime dependency (the image installs --no-dev).
